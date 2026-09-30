@@ -133,6 +133,9 @@ export function AddServerModal({
               className="sui-server-input"
               placeholder="203.0.113.10"
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </Field>
           <Field label="SSH Port">
@@ -151,6 +154,9 @@ export function AddServerModal({
               className="sui-server-input"
               placeholder="deploy"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </Field>
           <fieldset>

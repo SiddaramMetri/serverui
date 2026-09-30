@@ -70,4 +70,18 @@ describe("AddServerModal", () => {
       screen.getByText(/Your private key is encrypted before being stored/),
     ).toBeInTheDocument();
   });
+
+  it("disables autocapitalization, autocorrect, and spellcheck on host and username inputs", () => {
+    render(<AddServerModal onClose={() => undefined} onSubmit={() => undefined} />);
+
+    const hostInput = screen.getByLabelText("Host / IP");
+    expect(hostInput).toHaveAttribute("autocapitalize", "none");
+    expect(hostInput).toHaveAttribute("autocorrect", "off");
+    expect(hostInput).toHaveAttribute("spellcheck", "false");
+
+    const usernameInput = screen.getByLabelText("Username");
+    expect(usernameInput).toHaveAttribute("autocapitalize", "none");
+    expect(usernameInput).toHaveAttribute("autocorrect", "off");
+    expect(usernameInput).toHaveAttribute("spellcheck", "false");
+  });
 });
