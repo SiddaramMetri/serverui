@@ -4,14 +4,18 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
+  baseName,
+  buildMoveDestination,
   createDirectory,
   createFile,
   deleteFile,
   downloadUrl,
+  isValidMove,
   joinPath,
   listFiles,
   parentPath,
   renameFile,
+  suggestUniqueName,
   uploadFile,
   type FileEntry,
 } from "@/src/lib/api/files";
@@ -35,6 +39,14 @@ type MenuState = {
   entry: FileEntry | null;
 };
 
+type PendingMove = {
+  from: string;
+  to: string;
+  destDir: string;
+  name: string;
+  destNames: string[];
+};
+
 export function FilesApp() {
   const { openWindow } = useWindowManager();
   const { server } = useServer();
@@ -49,6 +61,7 @@ export function FilesApp() {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const serverId = selectedServer?.id || "";
@@ -113,6 +126,7 @@ export function FilesApp() {
     setQuery("");
     setPath(normalized);
     setMenu(null);
+    setPendingMove(null);
     void load(normalized);
   }
 
@@ -199,6 +213,59 @@ export function FilesApp() {
       await load(path);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "upload failed");
+    }
+  }
+
+  async function handleMove(sourcePath: string, destDir: string) {
+    const source = entries.find((entry) => entry.path === sourcePath);
+    if (!source) {
+      setError("unable to move: item not found");
+      return;
+    }
+    if (!isValidMove(sourcePath, source.type, destDir)) {
+      setError("cannot move an item into itself or its current location");
+      return;
+    }
+    const to = buildMoveDestination(destDir, sourcePath);
+    if (sourcePath === to) return;
+    try {
+      setError(null);
+      const destEntries = destDir === path ? entries : (await listFiles(serverId, destDir)).entries;
+      if (destEntries.some((entry) => entry.name === source.name && entry.path !== sourcePath)) {
+        setPendingMove({
+          from: sourcePath,
+          to,
+          destDir,
+          name: source.name,
+          destNames: destEntries.map((entry) => entry.name),
+        });
+        return;
+      }
+      await renameFile(serverId, sourcePath, to);
+      setSelected(null);
+      await load(path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to move ${baseName(sourcePath)}`);
+    }
+  }
+
+  async function resolveMove(mode: "replace" | "rename") {
+    if (!pendingMove) return;
+    try {
+      setError(null);
+      const to =
+        mode === "replace"
+          ? pendingMove.to
+          : joinPath(
+              pendingMove.destDir,
+              suggestUniqueName(pendingMove.destNames, pendingMove.name),
+            );
+      await renameFile(serverId, pendingMove.from, to);
+      setPendingMove(null);
+      setSelected(null);
+      await load(path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to move ${pendingMove.name}`);
     }
   }
 
@@ -416,6 +483,35 @@ export function FilesApp() {
             </button>
           </div>
         ) : null}
+        {pendingMove ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950"
+            role="alertdialog"
+            aria-labelledby="move-conflict-title"
+          >
+            <p id="move-conflict-title" className="min-w-0 flex-1">
+              An item named <span className="font-medium">“{pendingMove.name}”</span> already
+              exists.
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setPendingMove(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void resolveMove("replace")}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void resolveMove("rename")}
+            >
+              Rename
+            </button>
+          </div>
+        ) : null}
         {loading ? (
           <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-neutral-400">
             Loading files…
@@ -433,6 +529,7 @@ export function FilesApp() {
             onOpen={openEntry}
             onParent={() => path !== "/" && goTo(parentPath(path))}
             onContextMenu={openContextMenu}
+            onMove={(source, dest) => void handleMove(source, dest)}
           />
         )}
         <div className="flex shrink-0 items-center justify-between border-t sui-hairline px-4 py-1.5 text-[11px] sui-muted">

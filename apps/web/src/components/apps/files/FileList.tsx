@@ -10,10 +10,20 @@ import {
   FileVideo,
   Folder,
 } from "lucide-react";
-import type { MouseEvent } from "react";
+import { useState } from "react";
+import type { DragEvent as ReactDragEvent, MouseEvent } from "react";
 import { getFileType } from "@/src/lib/files/file-type";
 import { formatModified, formatSize } from "@/src/lib/files/format";
-import type { FileEntry } from "@/src/lib/api/files";
+import { parentPath, type FileEntry } from "@/src/lib/api/files";
+
+const DRAG_MIME = "application/x-serverui-file";
+
+function readDragPath(event: ReactDragEvent): string | null {
+  const direct = event.dataTransfer.getData(DRAG_MIME);
+  if (direct) return direct;
+  const plain = event.dataTransfer.getData("text/plain");
+  return plain || null;
+}
 
 export function FileList({
   path,
@@ -23,6 +33,7 @@ export function FileList({
   onOpen,
   onParent,
   onContextMenu,
+  onMove,
 }: {
   path: string;
   entries: FileEntry[];
@@ -31,7 +42,25 @@ export function FileList({
   onOpen: (entry: FileEntry) => void;
   onParent: () => void;
   onContextMenu: (event: MouseEvent, entry: FileEntry | null) => void;
+  onMove: (sourcePath: string, destDir: string) => void;
 }) {
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const parentDest = parentPath(path);
+
+  function overDest(event: ReactDragEvent, dest: string) {
+    if (event.dataTransfer.types.length === 0) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget !== dest) setDropTarget(dest);
+  }
+
+  function dropOnto(event: ReactDragEvent, dest: string) {
+    event.preventDefault();
+    setDropTarget(null);
+    const source = readDragPath(event);
+    if (source) onMove(source, dest);
+  }
+
   return (
     <div
       className="min-h-0 flex-1 overflow-y-auto"
@@ -51,7 +80,13 @@ export function FileList({
         </thead>
         <tbody>
           {path !== "/" ? (
-            <tr className="cursor-default border-b sui-hairline sui-hover" onDoubleClick={onParent}>
+            <tr
+              className={`cursor-default border-b sui-hairline sui-hover ${dropTarget === parentDest ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
+              onDoubleClick={onParent}
+              onDragOver={(event) => overDest(event, parentDest)}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={(event) => dropOnto(event, parentDest)}
+            >
               <td className="px-4 py-1.5" colSpan={3}>
                 <button
                   type="button"
@@ -69,9 +104,20 @@ export function FileList({
               key={entry.path}
               entry={entry}
               selected={selected === entry.path}
+              dropActive={dropTarget === entry.path}
               onSelect={() => onSelect(entry.path)}
               onOpen={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(event, entry)}
+              onDragStart={(event) => {
+                onSelect(entry.path);
+                event.dataTransfer.setData(DRAG_MIME, entry.path);
+                event.dataTransfer.setData("text/plain", entry.path);
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={entry.type === "dir" ? (event) => overDest(event, entry.path) : undefined}
+              onDragLeave={entry.type === "dir" ? () => setDropTarget(null) : undefined}
+              onDrop={entry.type === "dir" ? (event) => dropOnto(event, entry.path) : undefined}
+              onDragEnd={() => setDropTarget(null)}
             />
           ))}
         </tbody>
@@ -83,22 +129,40 @@ export function FileList({
 function FileItem({
   entry,
   selected,
+  dropActive,
   onSelect,
   onOpen,
   onContextMenu,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: {
   entry: FileEntry;
   selected: boolean;
+  dropActive: boolean;
   onSelect: () => void;
   onOpen: () => void;
   onContextMenu: (event: MouseEvent) => void;
+  onDragStart: (event: ReactDragEvent) => void;
+  onDragOver?: (event: ReactDragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (event: ReactDragEvent) => void;
+  onDragEnd: () => void;
 }) {
   return (
     <tr
-      className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""}`}
+      draggable
+      className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
       onClick={onSelect}
       onDoubleClick={onOpen}
       onContextMenu={onContextMenu}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
     >
       <td className="px-4 py-1.5">
         <button
