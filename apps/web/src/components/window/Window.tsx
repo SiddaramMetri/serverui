@@ -8,6 +8,12 @@ import { useServer } from "@/src/lib/api/server-context";
 import { useSelectedServer } from "@/src/lib/session";
 import { useTheme } from "@/src/lib/theme";
 import { useWindowManager, type WindowState } from "@/src/components/window/window-context";
+// Genie minimize/restore is paused for now.
+// import {
+//   animateWindowFromDock,
+//   animateWindowToDock,
+//   cancelGenie,
+// } from "@/src/lib/dock-window-motion";
 
 type ResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -27,6 +33,7 @@ export function Window({ window: win, children }: { window: WindowState; childre
   const { server } = useServer();
   const selected = useSelectedServer();
   const { theme } = useTheme();
+  const nodeRef = useRef<HTMLElement>(null);
   const drag = useRef<{
     offsetX: number;
     offsetY: number;
@@ -48,6 +55,13 @@ export function Window({ window: win, children }: { window: WindowState; childre
     win.app === "terminal"
       ? `Terminal — ${selected?.hostname || selected?.address || server?.hostname || server?.host || "server"}`
       : win.title;
+
+  // Genie minimize/restore is paused; hide instantly for now.
+  // import {
+  //   animateWindowFromDock,
+  //   animateWindowToDock,
+  //   cancelGenie,
+  // } from "@/src/lib/dock-window-motion";
 
   function onHeaderPointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0) return;
@@ -139,30 +153,38 @@ export function Window({ window: win, children }: { window: WindowState; childre
 
   return (
     <article
+      ref={nodeRef}
       role="dialog"
       aria-label={title}
       aria-modal="false"
-      className={`absolute flex flex-col overflow-hidden ${
+      aria-hidden={win.minimized}
+      className={`sui-window-glass absolute flex flex-col overflow-hidden ${
         win.maximized
           ? "inset-0 h-full w-full rounded-none border-0 shadow-none"
-          : `rounded-[12px] shadow-[0_24px_80px_rgba(0,0,0,0.35)] animate-window-in ${
-              light
-                ? "border border-white/70 bg-[var(--window-bg)]"
-                : "border border-white/10 bg-[#161616]"
-            } ${focused ? "ring-1 ring-black/10" : "opacity-95"}`
-      } ${win.maximized ? (light ? "bg-[var(--window-bg)]" : "bg-[#161616]") : ""}`}
+          : `rounded-[12px] border ${focused ? "ring-1 ring-white/14" : ""}`
+      }`}
       style={
         win.maximized
-          ? { zIndex: win.zIndex }
+          ? {
+              zIndex: win.zIndex,
+              visibility: win.minimized ? "hidden" : "visible",
+              opacity: win.minimized ? 0 : 1,
+              pointerEvents: win.minimized ? "none" : undefined,
+            }
           : {
               left: win.x,
               top: win.y,
               width: win.width,
               height: win.height,
               zIndex: win.zIndex,
+              visibility: win.minimized ? "hidden" : "visible",
+              opacity: win.minimized ? 0 : 1,
+              pointerEvents: win.minimized ? "none" : undefined,
             }
       }
-      onPointerDown={() => focusWindow(win.id)}
+      onPointerDown={() => {
+        if (!win.minimized) focusWindow(win.id);
+      }}
     >
       <WindowHeader
         title={title}
@@ -175,7 +197,7 @@ export function Window({ window: win, children }: { window: WindowState; childre
         onMaximize={() => (win.maximized ? restoreWindow(win.id) : maximizeWindow(win.id))}
         onClose={() => closeWindow(win.id)}
       />
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       {!win.maximized
         ? EDGES.map((edge) => (
             <div

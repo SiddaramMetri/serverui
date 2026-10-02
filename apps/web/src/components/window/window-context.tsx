@@ -58,6 +58,7 @@ type Action =
   | { type: "maximize"; id: string }
   | { type: "restore"; id: string }
   | { type: "focus"; id: string }
+  | { type: "toggle-dock"; app: AppId }
   | { type: "clearFocus" }
   | { type: "move"; id: string; x: number; y: number }
   | {
@@ -232,6 +233,19 @@ function reducer(state: ManagerState, action: Action): ManagerState {
         zCounter: zIndex,
       };
     }
+    case "toggle-dock": {
+      const existing = state.windows.find((item) => item.app === action.app);
+      if (!existing) {
+        return reducer(state, { type: "open", app: action.app });
+      }
+      if (existing.minimized) {
+        return reducer(state, { type: "restore", id: existing.id });
+      }
+      if (state.focusedId === existing.id) {
+        return reducer(state, { type: "minimize", id: existing.id });
+      }
+      return reducer(state, { type: "focus", id: existing.id });
+    }
     case "clearFocus":
       return { ...state, focusedId: null };
     case "move": {
@@ -277,6 +291,7 @@ type WindowManagerApi = {
   maximizeWindow: (id: string) => void;
   restoreWindow: (id: string) => void;
   focusWindow: (id: string) => void;
+  toggleDockApp: (app: AppId) => void;
   clearFocus: () => void;
   updateWindowPosition: (id: string, x: number, y: number) => void;
   updateWindowSize: (id: string, width: number, height: number, x: number, y: number) => void;
@@ -315,6 +330,9 @@ export function WindowManagerProvider({ children }: { children: ReactNode }) {
   const focusWindow = useCallback((id: string) => {
     dispatch({ type: "focus", id });
   }, []);
+  const toggleDockApp = useCallback((app: AppId) => {
+    dispatch({ type: "toggle-dock", app });
+  }, []);
   const clearFocus = useCallback(() => {
     dispatch({ type: "clearFocus" });
   }, []);
@@ -338,6 +356,7 @@ export function WindowManagerProvider({ children }: { children: ReactNode }) {
       maximizeWindow,
       restoreWindow,
       focusWindow,
+      toggleDockApp,
       clearFocus,
       updateWindowPosition,
       updateWindowSize,
@@ -351,6 +370,7 @@ export function WindowManagerProvider({ children }: { children: ReactNode }) {
       maximizeWindow,
       restoreWindow,
       focusWindow,
+      toggleDockApp,
       clearFocus,
       updateWindowPosition,
       updateWindowSize,
