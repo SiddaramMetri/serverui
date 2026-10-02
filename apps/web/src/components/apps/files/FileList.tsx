@@ -42,7 +42,7 @@ export function FileList({
       }}
     >
       <table className="w-full text-left text-[13px]">
-        <thead className="sticky top-0 z-10 sui-app text-[11px] sui-muted">
+        <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
           <tr className="border-b sui-hairline">
             <th className="px-4 py-2 font-medium">Name</th>
             <th className="px-4 py-2 font-medium">Size</th>

@@ -13,7 +13,7 @@ export function TextViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.error) {
     return (
-      <div className="h-full bg-[#161616]">
+      <div className="h-full bg-transparent">
         <ViewerMessage
           tone="danger"
           title={preview.error}
@@ -26,7 +26,7 @@ export function TextViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#161616] text-sm text-white/50">
+      <div className="flex h-full items-center justify-center bg-transparent text-sm text-white/50">
         Loading file…
       </div>
     );
@@ -34,7 +34,7 @@ export function TextViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.binary || !looksLikeText(preview.content)) {
     return (
-      <div className="h-full bg-[#161616]">
+      <div className="h-full bg-transparent">
         <ViewerMessage
           tone="danger"
           title="Unsupported format"
@@ -46,7 +46,7 @@ export function TextViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#161616] text-[#d7d7d7]">
+    <div className="flex h-full flex-col bg-transparent text-[#d7d7d7]">
       <PreviewToolbar
         truncated={preview.truncated}
         content={preview.content}
@@ -119,7 +119,7 @@ export function PreviewToolbar({
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center justify-end gap-2 border-b border-white/10 px-3 py-2">
+    <div className="sui-toolbar flex items-center justify-end gap-2 border-b sui-hairline px-3 py-2">
       {truncated ? (
         <span className="mr-auto text-[11px] text-amber-200">
           Preview only — file is large. Download for the full contents.

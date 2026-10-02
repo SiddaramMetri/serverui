@@ -22,7 +22,7 @@ export function FileToolbar({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
+    <div className="sui-toolbar flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
       <button type="button" className={toolbarClass} disabled={!selected} onClick={onOpen}>
         Open
       </button>

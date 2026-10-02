@@ -15,7 +15,7 @@ export function VideoViewer({ file, onClose }: { file: ViewerFile; onClose: () =
 
   if (error) {
     return (
-      <div className="h-full bg-[#111]">
+      <div className="h-full bg-black/40">
         <ViewerMessage
           tone="danger"
           title="Video cannot be played"

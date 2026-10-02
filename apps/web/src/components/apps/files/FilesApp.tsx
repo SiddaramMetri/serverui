@@ -254,16 +254,16 @@ export function FilesApp() {
         if (event.key === "Enter") openSelected();
       }}
     >
-      <aside className="flex w-[188px] shrink-0 flex-col overflow-y-auto bg-[#6d7278] px-3 py-4 text-[12px] text-white/90">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+      <aside className="sui-sidebar flex w-[188px] shrink-0 flex-col overflow-y-auto px-3 py-4 text-[12px]">
+        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] sui-muted">
           Favorites
         </p>
         {places.map((place) => (
           <button
             key={place.path}
             type="button"
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/70 ${
-              path === place.path ? "bg-white/15" : ""
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none sui-hover focus-visible:ring-2 focus-visible:ring-sky-400 ${
+              path === place.path ? "sui-selected" : ""
             }`}
             onClick={() => goTo(place.path)}
           >
@@ -273,7 +273,7 @@ export function FilesApp() {
         ))}
       </aside>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col sui-app">
-        <div className="flex items-center gap-2 border-b sui-hairline px-3 py-2">
+        <div className="sui-toolbar flex items-center gap-2 border-b sui-hairline px-3 py-2">
           <button
             type="button"
             aria-label="Back"
