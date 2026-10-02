@@ -12,6 +12,17 @@ export const APP_IDS = [
 export type DockAppId = (typeof APP_IDS)[number];
 export type AppId = DockAppId | "about" | "viewer";
 
+/** Apps that stay in the catalog but are not shown on the dock. */
+export const DOCK_HIDDEN_IDS: ReadonlySet<DockAppId> = new Set([
+  "applications",
+  "domains",
+  "databases",
+]);
+
+export function visibleDockOrder(order: readonly DockAppId[]): DockAppId[] {
+  return order.filter((id) => !DOCK_HIDDEN_IDS.has(id));
+}
+
 export type WindowChrome = "light" | "dark";
 
 export const APP_META: Record<
@@ -25,11 +36,11 @@ export const APP_META: Record<
   }
 > = {
   dashboard: {
-    title: "Dashboard",
-    width: 900,
-    height: 600,
+    title: "System Monitor",
+    width: 1120,
+    height: 720,
     available: true,
-    chrome: "light",
+    chrome: "dark",
   },
   files: {
     title: "Files",
@@ -47,10 +58,10 @@ export const APP_META: Record<
   },
   editor: {
     title: "Editor",
-    width: 720,
-    height: 480,
+    width: 760,
+    height: 560,
     available: false,
-    chrome: "light",
+    chrome: "dark",
   },
   applications: {
     title: "Applications",
@@ -82,10 +93,10 @@ export const APP_META: Record<
   },
   about: {
     title: "About",
-    width: 440,
-    height: 380,
+    width: 740,
+    height: 680,
     available: true,
-    chrome: "light",
+    chrome: "dark",
   },
   viewer: {
     title: "Viewer",
