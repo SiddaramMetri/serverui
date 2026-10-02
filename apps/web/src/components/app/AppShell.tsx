@@ -7,15 +7,18 @@ import { ServerSelection } from "@/src/components/server-selection/ServerSelecti
 import { RuntimeProvider } from "@/src/lib/runtime";
 import { SessionProvider, useSession } from "@/src/lib/session";
 import { ThemeProvider } from "@/src/lib/theme";
+import { WallpaperProvider } from "@/src/lib/wallpaper";
 
 export function AppShell() {
   return (
     <ThemeProvider>
-      <RuntimeProvider>
-        <SessionProvider>
-          <AppScreens />
-        </SessionProvider>
-      </RuntimeProvider>
+      <WallpaperProvider>
+        <RuntimeProvider>
+          <SessionProvider>
+            <AppScreens />
+          </SessionProvider>
+        </RuntimeProvider>
+      </WallpaperProvider>
     </ThemeProvider>
   );
 }

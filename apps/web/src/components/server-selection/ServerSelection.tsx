@@ -8,6 +8,7 @@ import { ServerCard } from "@/src/components/server-selection/ServerCard";
 import type { NewServerInput, Server } from "@/src/lib/servers";
 import { formatConnectionTestMessage, friendlyError } from "@/src/lib/errors";
 import { formatApiError, useSession } from "@/src/lib/session";
+import { WallpaperBackdrop } from "@/src/lib/wallpaper";
 
 export function ServerSelection() {
   const {
@@ -113,11 +114,10 @@ export function ServerSelection() {
   const empty = !loadingServers && !serversError && servers.length === 0;
 
   return (
-    <div className="relative h-dvh w-full overflow-auto bg-[#0d1117] text-white">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-40"
-        style={{ backgroundImage: "url('/wallpaper.jpg?v=luffy')" }}
+    <div className="relative h-dvh w-full overflow-auto text-white">
+      <WallpaperBackdrop
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        opacity={0.4}
       />
       <div
         aria-hidden
@@ -147,13 +147,13 @@ export function ServerSelection() {
           className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2"
         >
           {loadingServers && servers.length === 0 ? (
-            <div className="min-h-[154px] rounded-[22px] border border-white/10 bg-white/[0.06] p-5 text-[13px] text-white/55">
+            <div className="sui-card min-h-[154px] rounded-[22px] p-5 text-[13px] text-white/55">
               Loading servers…
             </div>
           ) : null}
 
           {serversError && servers.length === 0 ? (
-            <div className="min-h-[154px] rounded-[22px] border border-white/10 bg-white/[0.06] p-5">
+            <div className="sui-card min-h-[154px] rounded-[22px] p-5">
               <p className="text-[15px] font-medium text-white">Unable to load servers.</p>
               <p className="mt-1 text-[13px] text-white/55">
                 {friendlyError(serversError, "Unable to load servers.").detail}
@@ -281,7 +281,7 @@ function DeleteServerModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-server-title"
-        className="w-full max-w-[400px] rounded-[22px] border border-white/12 bg-[#16181d]/92 p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur-2xl animate-modal-in"
+        className="sui-card w-full max-w-[400px] rounded-[22px] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.5)] animate-modal-in"
       >
         <h2 id="delete-server-title" className="text-[16px] font-semibold text-white">
           Delete “{server.name}”?
