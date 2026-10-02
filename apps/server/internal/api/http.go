@@ -42,7 +42,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/servers/{id}/status", s.serverStatus)
 
 	mux.HandleFunc("GET /api/server", s.legacyServer)
-	mux.HandleFunc("GET /api/server/metrics", s.legacyServer)
+	mux.HandleFunc("GET /api/server/metrics", s.liveMetrics)
+	mux.HandleFunc("GET /api/server/process", s.processInspect)
+	mux.HandleFunc("POST /api/server/process/kill", s.processKill)
+	mux.HandleFunc("POST /api/server/service", s.controlService)
 
 	mux.HandleFunc("GET /api/applications", s.placeholder("applications"))
 	mux.HandleFunc("GET /api/databases", s.placeholder("databases"))
@@ -146,7 +149,7 @@ func (s *Server) getServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.withMetrics(item))
+	writeJSON(w, http.StatusOK, s.withMetrics(item, false))
 }
 
 func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +193,7 @@ func (s *Server) connectServer(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.withMetrics(item))
+	writeJSON(w, http.StatusOK, s.withMetrics(item, false))
 }
 
 func (s *Server) disconnectServer(w http.ResponseWriter, r *http.Request) {
@@ -218,10 +221,103 @@ func (s *Server) legacyServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.withMetrics(item))
+	writeJSON(w, http.StatusOK, s.withMetrics(item, false))
 }
 
-func (s *Server) withMetrics(item servers.Public) map[string]any {
+func (s *Server) liveMetrics(w http.ResponseWriter, r *http.Request) {
+	id, err := requestServerID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	item, err := s.servers.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.withMetrics(item, true))
+}
+
+func (s *Server) processInspect(w http.ResponseWriter, r *http.Request) {
+	id, err := requestServerID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("pid")))
+	if err != nil || pid <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "pid is required"})
+		return
+	}
+	if _, err := s.servers.Get(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	detail, err := s.metrics.InspectProcess(id, pid)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": sshx.PublicError(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) processKill(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerID string `json:"serverId"`
+		PID      int    `json:"pid"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	id, err := bodyOrQueryServerID(r, body.ServerID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.PID <= 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refusing to signal this process"})
+		return
+	}
+	if _, err := s.servers.Get(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.metrics.KillProcess(id, body.PID); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": sshx.PublicError(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pid": body.PID})
+}
+
+func (s *Server) controlService(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerID string `json:"serverId"`
+		Name     string `json:"name"`
+		Action   string `json:"action"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	id, err := bodyOrQueryServerID(r, body.ServerID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if _, err := s.servers.Get(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.metrics.ControlService(id, body.Name, body.Action); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": sshx.PublicError(err)})
+		return
+	}
+	s.metrics.Invalidate(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": body.Name, "action": body.Action})
+}
+
+func (s *Server) withMetrics(item servers.Public, wait bool) map[string]any {
 	payload := map[string]any{
 		"id":            item.ID,
 		"name":          item.Name,
@@ -245,19 +341,133 @@ func (s *Server) withMetrics(item servers.Public) map[string]any {
 	if item.Status != servers.StatusOnline {
 		return payload
 	}
-	s.metrics.RefreshAsync(item.ID)
-	snap, snapErr, ok := s.metrics.Cached(item.ID)
+	var snap metrics.Snapshot
+	var snapErr error
+	ok := true
+	if wait {
+		snap, snapErr = s.metrics.Snapshot(item.ID)
+		ok = snapErr == nil
+	} else {
+		s.metrics.RefreshAsync(item.ID)
+		snap, snapErr, ok = s.metrics.Cached(item.ID)
+	}
+	attachSnapshot(payload, snap)
+	if (!ok || wait) && snapErr != nil {
+		payload["error"] = sshx.PublicError(snapErr)
+	}
+	return payload
+}
+
+func attachSnapshot(payload map[string]any, snap metrics.Snapshot) {
 	if snap.Hostname != "" {
 		payload["hostname"] = snap.Hostname
 	}
 	payload["cpuUsage"] = snap.CPUUsage
+	payload["cpuUser"] = snap.CPUUser
+	payload["cpuSystem"] = snap.CPUSystem
+	payload["cpuIowait"] = snap.CPUIowait
+	payload["cpuCores"] = snap.CPUCores
+	payload["cpuPhysicalCores"] = snap.CPUPhysicalCores
+	payload["cpuModel"] = snap.CPUModel
+	payload["cpuBaseMHz"] = snap.CPUBaseMHz
+	payload["cpuMaxMHz"] = snap.CPUMaxMHz
+	payload["cpuTempC"] = snap.CPUTempC
+	payload["l1CacheBytes"] = snap.L1CacheBytes
+	payload["l2CacheBytes"] = snap.L2CacheBytes
+	payload["l3CacheBytes"] = snap.L3CacheBytes
+	if snap.Cores == nil {
+		payload["cores"] = []metrics.CoreUsage{}
+	} else {
+		payload["cores"] = snap.Cores
+	}
 	payload["memoryUsage"] = snap.MemoryUsage
+	payload["memoryUsedBytes"] = snap.MemoryUsedBytes
+	payload["memoryTotalBytes"] = snap.MemoryTotalBytes
+	payload["memoryAvailableBytes"] = snap.MemoryAvailableBytes
+	payload["memoryCachedBytes"] = snap.MemoryCachedBytes
+	payload["memoryBuffersBytes"] = snap.MemoryBuffersBytes
+	payload["swapTotalBytes"] = snap.SwapTotalBytes
+	payload["swapUsedBytes"] = snap.SwapUsedBytes
+	payload["swapFreeBytes"] = snap.SwapFreeBytes
+	payload["pageFaults"] = snap.PageFaults
+	payload["pageFaultsMinor"] = snap.PageFaultsMinor
+	payload["pageFaultsMajor"] = snap.PageFaultsMajor
 	payload["diskUsage"] = snap.DiskUsage
 	payload["uptimeSeconds"] = snap.UptimeSeconds
-	if !ok && snapErr != nil {
-		payload["error"] = sshx.PublicError(snapErr)
+	payload["diskUsedBytes"] = snap.DiskUsedBytes
+	payload["diskTotalBytes"] = snap.DiskTotalBytes
+	payload["diskFreeBytes"] = snap.DiskFreeBytes
+	payload["diskReadBps"] = snap.DiskReadBps
+	payload["diskWriteBps"] = snap.DiskWriteBps
+	payload["diskReadIops"] = snap.DiskReadIops
+	payload["diskWriteIops"] = snap.DiskWriteIops
+	payload["diskDevice"] = snap.DiskDevice
+	payload["diskModel"] = snap.DiskModel
+	payload["diskType"] = snap.DiskType
+	payload["diskFSType"] = snap.DiskFSType
+	payload["diskMountOptions"] = snap.DiskMountOptions
+	payload["diskTempC"] = snap.DiskTempC
+	if snap.DiskMounts == nil {
+		payload["diskMounts"] = []metrics.DiskMount{}
+	} else {
+		payload["diskMounts"] = snap.DiskMounts
 	}
-	return payload
+	payload["load1"] = snap.Load1
+	payload["load5"] = snap.Load5
+	payload["load15"] = snap.Load15
+	payload["osName"] = snap.OSName
+	payload["kernel"] = snap.Kernel
+	payload["arch"] = snap.Arch
+	payload["virtualization"] = snap.Virtualization
+	payload["ipAddress"] = snap.IPAddress
+	payload["dockerVersion"] = snap.DockerVersion
+	payload["containerCount"] = snap.ContainerCount
+	payload["netRxBps"] = snap.NetRxBps
+	payload["netTxBps"] = snap.NetTxBps
+	payload["netRxBytes"] = snap.NetRxBytes
+	payload["netTxBytes"] = snap.NetTxBytes
+	payload["netConns"] = snap.NetConns
+	payload["netEstablished"] = snap.NetEstablished
+	payload["netListenPorts"] = snap.NetListenPorts
+	if snap.NetListenPorts == nil {
+		payload["netListenPorts"] = []int{}
+	}
+	payload["netIface"] = snap.NetIface
+	payload["netIfaceType"] = snap.NetIfaceType
+	payload["netMAC"] = snap.NetMAC
+	payload["netIPv4"] = snap.NetIPv4
+	payload["netIPv6"] = snap.NetIPv6
+	payload["netSubnet"] = snap.NetSubnet
+	payload["netGateway"] = snap.NetGateway
+	payload["netDNS"] = snap.NetDNS
+	if snap.NetProcesses == nil {
+		payload["netProcesses"] = []metrics.NetProcess{}
+	} else {
+		payload["netProcesses"] = snap.NetProcesses
+	}
+	payload["processCount"] = snap.ProcessCount
+	payload["processUserCount"] = snap.ProcessUserCount
+	payload["processSysCount"] = snap.ProcessSysCount
+	payload["processRunning"] = snap.ProcessRunning
+	if snap.Processes == nil {
+		payload["processes"] = []metrics.Process{}
+	} else {
+		payload["processes"] = snap.Processes
+	}
+	if snap.Services == nil {
+		payload["services"] = []metrics.Service{}
+	} else {
+		payload["services"] = snap.Services
+	}
+	payload["serviceRunning"] = snap.ServiceRunning
+	payload["serviceStopped"] = snap.ServiceStopped
+	payload["serviceFailed"] = snap.ServiceFailed
+	payload["serviceOther"] = snap.ServiceOther
+	if snap.History == nil {
+		payload["history"] = []metrics.HistoryPoint{}
+	} else {
+		payload["history"] = snap.History
+	}
 }
 
 func (s *Server) placeholder(kind string) http.HandlerFunc {
