@@ -1,7 +1,7 @@
 import { Database, Gauge, Thermometer } from "lucide-react";
 import { AreaChart, Sparkline, SparklineValues } from "@/src/components/apps/monitor/charts";
 import { formatBytes, formatGHz, type HistoryPoint } from "@/src/components/apps/monitor/format";
-import type { ServerInfo } from "@/src/lib/api/server";
+import type { MonitorCoreUsage, ServerInfo } from "@/src/lib/api/server";
 
 export function CpuTab({
   snap,
@@ -127,18 +127,12 @@ export function CpuTab({
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {cores.map((core) => (
-                <div key={core.id} className="sui-glass-card rounded-xl px-2.5 py-2">
-                  <div className="flex items-center justify-between text-[11px] text-white/55">
-                    <span>{core.id}</span>
-                    <span className="tabular-nums text-white/80">{Math.round(core.usage)}%</span>
-                  </div>
-                  <SparklineValues
-                    values={chart.map((point) => point.cores?.[core.id] ?? 0)}
-                    color="#34d399"
-                    className="mt-1 h-7 w-full"
-                  />
-                </div>
+              {cores.map((core, index) => (
+                <CoreSpark
+                  key={core.id ?? index}
+                  core={core}
+                  values={chart.map((point) => point.cores?.[core.id] ?? 0)}
+                />
               ))}
             </div>
           )}
@@ -156,6 +150,18 @@ export function CpuTab({
         </section>
       </div>
     </>
+  );
+}
+
+function CoreSpark({ core, values }: { core: MonitorCoreUsage; values: number[] }) {
+  return (
+    <div className="sui-glass-card rounded-xl px-2.5 py-2">
+      <div className="flex items-center justify-between text-[11px] text-white/55">
+        <span>{core.id}</span>
+        <span className="tabular-nums text-white/80">{Math.round(core.usage)}%</span>
+      </div>
+      <SparklineValues values={values} color="#34d399" className="mt-1 h-7 w-full" />
+    </div>
   );
 }
 

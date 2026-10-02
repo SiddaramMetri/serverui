@@ -10,6 +10,7 @@ import {
   SettingsMacIcon,
   TerminalMacIcon,
 } from "@/src/components/desktop/mac-icons";
+import type { DockAppId } from "@/src/data/apps";
 import { useOptionalServer } from "@/src/lib/api/server-context";
 
 type IconProps = { className?: string; style?: CSSProperties };

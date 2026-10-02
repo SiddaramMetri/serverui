@@ -59,16 +59,17 @@ export function createGenieRenderer(bitmap: HTMLCanvasElement, id = ""): GenieRe
     "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483000;";
   document.body.appendChild(canvas);
 
-  const gl = canvas.getContext("webgl", {
+  const maybeGl = canvas.getContext("webgl", {
     alpha: true,
     antialias: true,
     premultipliedAlpha: true,
     preserveDrawingBuffer: false,
   });
-  if (!gl) {
+  if (!maybeGl) {
     canvas.remove();
     return null;
   }
+  const gl: WebGLRenderingContext = maybeGl;
 
   let program: WebGLProgram;
   try {
