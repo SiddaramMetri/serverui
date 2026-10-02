@@ -120,3 +120,7 @@ export function useServer() {
   }
   return context;
 }
+
+export function useOptionalServer() {
+  return useContext(ServerContext);
+}
