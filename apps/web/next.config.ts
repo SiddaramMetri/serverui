@@ -13,6 +13,7 @@ const staticExport = process.env.SERVERUI_STATIC_EXPORT === "1";
 const nextConfig: NextConfig = {
   output: staticExport ? "export" : "standalone",
   images: staticExport ? { unoptimized: true } : undefined,
+  transpilePackages: ["dusk-react"],
   devIndicators: false,
   turbopack: {
     root: path.dirname(fileURLToPath(import.meta.url)),
