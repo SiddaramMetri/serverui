@@ -118,7 +118,7 @@ export function TopBar() {
             <div
               role="menu"
               aria-label="Server menu"
-              className="absolute right-0 top-[calc(100%+6px)] z-[80] w-[240px] overflow-hidden rounded-2xl border border-white/12 bg-[#16181d]/95 py-1 text-left shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+              className="sui-menu absolute right-0 top-[calc(100%+6px)] z-[80] w-[240px] overflow-hidden rounded-2xl border py-1 text-left shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
             >
               <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
                 Current server

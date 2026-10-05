@@ -93,7 +93,7 @@ export function AddServerModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-[440px] overflow-hidden rounded-[22px] border border-white/12 bg-[#16181d]/92 shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur-2xl animate-modal-in"
+        className="sui-card w-full max-w-[440px] overflow-hidden rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] animate-modal-in"
       >
         <div className="flex items-center justify-between border-b border-white/8 px-5 py-3.5">
           <h2 id={titleId} className="text-[15px] font-semibold text-white">
@@ -133,6 +133,9 @@ export function AddServerModal({
               className="sui-server-input"
               placeholder="203.0.113.10"
               autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </Field>
           <Field label="SSH Port">
@@ -151,6 +154,9 @@ export function AddServerModal({
               className="sui-server-input"
               placeholder="deploy"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </Field>
           <fieldset>

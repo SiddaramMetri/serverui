@@ -12,7 +12,7 @@ export function CodeViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.error) {
     return (
-      <div className="h-full bg-[#161616]">
+      <div className="h-full bg-transparent">
         <ViewerMessage
           tone="danger"
           title={preview.error}
@@ -25,7 +25,7 @@ export function CodeViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#161616] text-sm text-white/50">
+      <div className="flex h-full items-center justify-center bg-transparent text-sm text-white/50">
         Loading file…
       </div>
     );
@@ -33,7 +33,7 @@ export function CodeViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
 
   if (preview.binary) {
     return (
-      <div className="h-full bg-[#161616]">
+      <div className="h-full bg-transparent">
         <ViewerMessage
           tone="danger"
           title="Unsupported format"
@@ -48,7 +48,7 @@ export function CodeViewer({ file, onClose }: { file: ViewerFile; onClose: () =>
   const width = String(Math.max(lines.length, 1)).length;
 
   return (
-    <div className="flex h-full flex-col bg-[#161616] text-[#d7d7d7]">
+    <div className="flex h-full flex-col bg-transparent text-[#d7d7d7]">
       <PreviewToolbar
         truncated={preview.truncated}
         content={preview.content}

@@ -1,39 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-vi.mock("@/src/lib/runtime", () => ({
-  isDesktopRuntime: vi.fn(),
-  currentRuntime: vi.fn(),
-}));
-
-vi.mock("@/src/lib/session", () => ({
-  useSelectedServer: vi.fn(() => null),
-}));
-
-import { isDesktopRuntime, currentRuntime } from "@/src/lib/runtime";
+import { WallpaperProvider } from "@/src/lib/wallpaper";
 import { SettingsApp } from "./SettingsApp";
 
 describe("SettingsApp", () => {
-  beforeEach(() => {
-    vi.mocked(isDesktopRuntime).mockReset();
-    vi.mocked(currentRuntime).mockReset();
-  });
-
-  it("shows about and runtime on web without updater controls", () => {
-    vi.mocked(isDesktopRuntime).mockReturnValue(false);
-    vi.mocked(currentRuntime).mockReturnValue("web");
-    render(<SettingsApp />);
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Remote / shared Go API")).toBeInTheDocument();
+  it("shows the General tab with wallpaper selection", async () => {
+    render(
+      <WallpaperProvider>
+        <SettingsApp />
+      </WallpaperProvider>,
+    );
+    expect(screen.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Wallpaper" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Crescent" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Valley" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Orbit" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Upload wallpaper" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload wallpaper…" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Dock" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Check for updates/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Web deployment" })).toBeInTheDocument();
-  });
-
-  it("shows update controls in desktop runtime", () => {
-    vi.mocked(isDesktopRuntime).mockReturnValue(true);
-    vi.mocked(currentRuntime).mockReturnValue("desktop");
-    render(<SettingsApp />);
-    expect(screen.getByRole("button", { name: /Check for updates/i })).toBeInTheDocument();
-    expect(screen.getByText("Local Go (loopback)")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: "Valley" }));
+    expect(screen.getByRole("option", { name: "Valley" })).toHaveAttribute("aria-selected", "true");
   });
 });

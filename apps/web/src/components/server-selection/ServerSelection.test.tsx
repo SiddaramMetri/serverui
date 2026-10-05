@@ -16,6 +16,7 @@ vi.mock("@/src/lib/api/server", () => ({
 
 import { ServerSelection } from "@/src/components/server-selection/ServerSelection";
 import { SessionProvider } from "@/src/lib/session";
+import { WallpaperProvider } from "@/src/lib/wallpaper";
 
 describe("ServerSelection", () => {
   beforeEach(() => {
@@ -26,9 +27,11 @@ describe("ServerSelection", () => {
     listServers.mockImplementation(() => new Promise(() => {}));
 
     render(
-      <SessionProvider>
-        <ServerSelection />
-      </SessionProvider>,
+      <WallpaperProvider>
+        <SessionProvider>
+          <ServerSelection />
+        </SessionProvider>
+      </WallpaperProvider>,
     );
 
     expect(screen.getByText("Loading servers…")).toBeInTheDocument();
@@ -38,9 +41,11 @@ describe("ServerSelection", () => {
     listServers.mockResolvedValue([]);
 
     render(
-      <SessionProvider>
-        <ServerSelection />
-      </SessionProvider>,
+      <WallpaperProvider>
+        <SessionProvider>
+          <ServerSelection />
+        </SessionProvider>
+      </WallpaperProvider>,
     );
 
     expect(await screen.findByRole("heading", { name: "Welcome to ServerUI" })).toBeInTheDocument();
@@ -52,9 +57,11 @@ describe("ServerSelection", () => {
     listServers.mockRejectedValue(new Error("network disconnected"));
 
     render(
-      <SessionProvider>
-        <ServerSelection />
-      </SessionProvider>,
+      <WallpaperProvider>
+        <SessionProvider>
+          <ServerSelection />
+        </SessionProvider>
+      </WallpaperProvider>,
     );
 
     expect(await screen.findByText("Unable to load servers.")).toBeInTheDocument();
@@ -80,9 +87,11 @@ describe("ServerSelection", () => {
     ]);
 
     render(
-      <SessionProvider>
-        <ServerSelection />
-      </SessionProvider>,
+      <WallpaperProvider>
+        <SessionProvider>
+          <ServerSelection />
+        </SessionProvider>
+      </WallpaperProvider>,
     );
 
     expect(await screen.findByRole("heading", { name: "Your Servers" })).toBeInTheDocument();

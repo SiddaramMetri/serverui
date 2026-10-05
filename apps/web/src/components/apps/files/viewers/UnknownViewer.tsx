@@ -42,7 +42,7 @@ export function UnknownViewer({
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#161616] text-[#d7d7d7]">
+    <div className="flex h-full flex-col bg-transparent text-[#d7d7d7]">
       <PreviewToolbar
         truncated={preview.truncated}
         content={preview.content}

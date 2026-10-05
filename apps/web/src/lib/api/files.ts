@@ -107,3 +107,31 @@ export function baseName(path: string) {
   const index = trimmed.lastIndexOf("/");
   return index < 0 ? trimmed : trimmed.slice(index + 1);
 }
+
+export function buildMoveDestination(destDir: string, sourcePath: string) {
+  return joinPath(destDir, baseName(sourcePath));
+}
+
+export function isValidMove(sourcePath: string, sourceType: "file" | "dir", destDir: string) {
+  if (sourcePath === "/") return false;
+  const source = sourcePath.replace(/\/+$/, "") || "/";
+  const dest = destDir.replace(/\/+$/, "") || "/";
+  if (source === dest) return false;
+  if (parentPath(source) === dest) return false;
+  // ponytail: prefix check blocks self/descendant drops; backend rename is final guard
+  if (sourceType === "dir" && (dest === source || dest.startsWith(`${source}/`))) return false;
+  return true;
+}
+
+export function suggestUniqueName(existing: string[], desired: string) {
+  if (!existing.includes(desired)) return desired;
+  const dot = desired.lastIndexOf(".");
+  const base = dot > 0 ? desired.slice(0, dot) : desired;
+  const ext = dot > 0 ? desired.slice(dot) : "";
+  let i = 1;
+  while (true) {
+    const candidate = `${base} (${i})${ext}`;
+    if (!existing.includes(candidate)) return candidate;
+    i += 1;
+  }
+}

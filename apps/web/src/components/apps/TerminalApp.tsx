@@ -45,7 +45,7 @@ export function TerminalApp({ payload }: { payload?: WindowPayload }) {
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
           fontSize: 13,
           theme: {
-            background: "#111111",
+            background: "#00000000",
             foreground: "#d7ffd9",
             cursor: "#5fff6a",
           },
@@ -172,7 +172,7 @@ export function TerminalApp({ payload }: { payload?: WindowPayload }) {
   }, [cwd, status]);
 
   return (
-    <div className="flex h-full flex-col bg-[#111111] text-[#5fff6a]">
+    <div className="sui-terminal flex h-full flex-col text-[#5fff6a]">
       <div className="flex items-center justify-between gap-3 px-3 py-2 text-[11px] text-white/70">
         <span>
           {status === "connecting"

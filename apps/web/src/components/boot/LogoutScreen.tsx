@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Server } from "@/src/lib/servers";
 import { BrandMark } from "@/src/components/brand/BrandMark";
+import { WallpaperBackdrop } from "@/src/lib/wallpaper";
 
 type LogoutScreenProps = {
   server: Server;
@@ -53,10 +54,9 @@ export function LogoutScreen({ server, onComplete }: LogoutScreenProps) {
 
   return (
     <div className="relative flex h-dvh w-full items-center justify-center overflow-hidden bg-[#07090c] text-white">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-25"
-        style={{ backgroundImage: "url('/wallpaper.jpg?v=luffy')" }}
+      <WallpaperBackdrop
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        opacity={0.25}
       />
       <div
         aria-hidden

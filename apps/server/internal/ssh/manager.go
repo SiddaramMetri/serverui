@@ -149,7 +149,7 @@ func (m *Manager) Run(command string) ([]byte, error) {
 	case res := <-done:
 		_ = session.Close()
 		return res.out, res.err
-	case <-time.After(8 * time.Second):
+	case <-time.After(12 * time.Second):
 		_ = session.Close()
 		return nil, fmt.Errorf("timeout")
 	}

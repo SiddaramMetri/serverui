@@ -10,6 +10,7 @@ import { TopBar } from "@/src/components/desktop/TopBar";
 import { BrandMark } from "@/src/components/brand/BrandMark";
 import { WindowManager } from "@/src/components/window/WindowManager";
 import { WindowManagerProvider, useWindowManager } from "@/src/components/window/window-context";
+import { WallpaperBackdrop } from "@/src/lib/wallpaper";
 
 export function Desktop() {
   const { selectedServer } = useSession();
@@ -114,11 +115,7 @@ function DesktopShell() {
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: "url('/wallpaper.jpg?v=luffy')" }}
-      />
+      <WallpaperBackdrop />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -152,7 +149,7 @@ function DesktopShell() {
       >
         <WindowManager />
       </div>
-      {fullscreen ? null : <Dock onComingSoon={showComingSoon} />}
+      <Dock onComingSoon={showComingSoon} autoHideOverride={fullscreen} />
       {menu ? (
         <DesktopContextMenu
           x={menu.x}

@@ -21,7 +21,7 @@ export function ServerCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="animate-card-in rounded-[22px] border border-white/10 bg-white/[0.06] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+    <div className="sui-card animate-card-in rounded-[22px] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
       <div className="relative flex min-h-[118px] flex-col items-start text-left">
         <span
           className={`absolute right-0 top-0 size-2 rounded-full ${

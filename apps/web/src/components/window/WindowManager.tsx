@@ -19,13 +19,11 @@ export function WindowManager() {
 
   return (
     <>
-      {windows
-        .filter((item) => !item.minimized)
-        .map((item) => (
-          <Window key={item.id} window={item}>
-            <AppBody app={item.app} payload={item.payload} windowId={item.id} />
-          </Window>
-        ))}
+      {windows.map((item) => (
+        <Window key={item.id} window={item}>
+          <AppBody app={item.app} payload={item.payload} windowId={item.id} />
+        </Window>
+      ))}
     </>
   );
 }

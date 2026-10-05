@@ -30,14 +30,8 @@ export function WindowHeader({
 
   return (
     <header
-      className={`relative flex h-11 shrink-0 cursor-grab items-center px-3 select-none active:cursor-grabbing ${
-        light
-          ? focused
-            ? "bg-[var(--window-header)]"
-            : "bg-[var(--window-header-inactive)]"
-          : focused
-            ? "bg-[#2b2b2e]"
-            : "bg-[#242426]"
+      className={`sui-window-header relative flex h-11 shrink-0 cursor-grab items-center px-3 select-none active:cursor-grabbing ${
+        focused ? "" : "opacity-80"
       }`}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}

@@ -10,10 +10,19 @@ import {
   FileVideo,
   Folder,
 } from "lucide-react";
-import { useRef, useState, type MouseEvent } from "react";
+import { useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent } from "react";
 import { getFileType } from "@/src/lib/files/file-type";
 import { formatModified, formatSize } from "@/src/lib/files/format";
-import type { FileEntry } from "@/src/lib/api/files";
+import { parentPath, type FileEntry } from "@/src/lib/api/files";
+
+const DRAG_MIME = "application/x-serverui-file";
+
+function readDragPath(event: ReactDragEvent): string | null {
+  const direct = event.dataTransfer.getData(DRAG_MIME);
+  if (direct) return direct;
+  const plain = event.dataTransfer.getData("text/plain");
+  return plain || null;
+}
 
 type MarqueeBox = {
   left: number;
@@ -35,6 +44,7 @@ export function FileList({
   onOpen,
   onParent,
   onContextMenu,
+  onMove,
 }: {
   path: string;
   entries: FileEntry[];
@@ -49,11 +59,28 @@ export function FileList({
   onOpen: (entry: FileEntry) => void;
   onParent: () => void;
   onContextMenu: (event: MouseEvent, entry: FileEntry | null) => void;
+  onMove?: (sourcePath: string, destDir: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const parentDest = parentPath(path);
 
   const activeSelected = selectedPaths ?? (selected ? new Set([selected]) : new Set<string>());
+
+  function overDest(event: ReactDragEvent, dest: string) {
+    if (event.dataTransfer.types.length === 0) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget !== dest) setDropTarget(dest);
+  }
+
+  function dropOnto(event: ReactDragEvent, dest: string) {
+    event.preventDefault();
+    setDropTarget(null);
+    const source = readDragPath(event);
+    if (source && onMove) onMove(source, dest);
+  }
 
   function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
@@ -189,7 +216,7 @@ export function FileList({
         />
       ) : null}
       <table className="w-full text-left text-[13px]">
-        <thead className="sticky top-0 z-10 sui-app text-[11px] sui-muted">
+        <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
           <tr className="border-b sui-hairline">
             <th className="px-4 py-2 font-medium">Name</th>
             <th className="px-4 py-2 font-medium">Size</th>
@@ -200,9 +227,12 @@ export function FileList({
           {path !== "/" ? (
             <tr
               data-parent="true"
-              className="cursor-default border-b sui-hairline sui-hover"
+              className={`cursor-default border-b sui-hairline sui-hover ${dropTarget === parentDest ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
               onClick={onParent}
               onDoubleClick={onParent}
+              onDragOver={(event) => overDest(event, parentDest)}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={(event) => dropOnto(event, parentDest)}
             >
               <td className="px-4 py-1.5" colSpan={3}>
                 <div className="flex items-center gap-2">
@@ -217,8 +247,19 @@ export function FileList({
               key={entry.path}
               entry={entry}
               selected={activeSelected.has(entry.path)}
+              dropActive={dropTarget === entry.path}
               onOpen={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(event, entry)}
+              onDragStart={(event) => {
+                onSelect(entry.path);
+                event.dataTransfer.setData(DRAG_MIME, entry.path);
+                event.dataTransfer.setData("text/plain", entry.path);
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={entry.type === "dir" ? (event) => overDest(event, entry.path) : undefined}
+              onDragLeave={entry.type === "dir" ? () => setDropTarget(null) : undefined}
+              onDrop={entry.type === "dir" ? (event) => dropOnto(event, entry.path) : undefined}
+              onDragEnd={() => setDropTarget(null)}
             />
           ))}
         </tbody>
@@ -230,20 +271,38 @@ export function FileList({
 function FileItem({
   entry,
   selected,
+  dropActive,
   onOpen,
   onContextMenu,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: {
   entry: FileEntry;
   selected: boolean;
+  dropActive: boolean;
   onOpen: () => void;
   onContextMenu: (event: MouseEvent) => void;
+  onDragStart: (event: ReactDragEvent) => void;
+  onDragOver?: (event: ReactDragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (event: ReactDragEvent) => void;
+  onDragEnd: () => void;
 }) {
   return (
     <tr
       data-path={entry.path}
-      className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""}`}
+      draggable
+      className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
       onDoubleClick={onOpen}
       onContextMenu={onContextMenu}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
     >
       <td className="px-4 py-1.5">
         <div className="flex max-w-full items-center gap-2">

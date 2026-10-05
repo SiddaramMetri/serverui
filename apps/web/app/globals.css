@@ -11,23 +11,23 @@ html[data-theme="dark"] {
   --toggle-bg: rgba(255, 255, 255, 0.12);
   --toggle-active: rgba(255, 255, 255, 0.92);
   --toggle-active-fg: #111111;
-  --app-bg: #1c1c1e;
-  --app-bg-2: #242426;
-  --app-sidebar: #323236;
+  --app-bg: rgba(28, 28, 30, 0.92);
+  --app-bg-2: rgba(255, 255, 255, 0.04);
+  --app-sidebar: rgba(22, 22, 24, 0.9);
   --app-fg: #f2f2f7;
   --app-title: #ffffff;
-  --app-muted: #a1a1a6;
-  --app-card: #2c2c2e;
-  --app-input: #3a3a3c;
-  --app-border: rgba(255, 255, 255, 0.08);
-  --app-hover: rgba(255, 255, 255, 0.06);
+  --app-muted: #c7c7cc;
+  --app-card: rgba(255, 255, 255, 0.08);
+  --app-input: rgba(255, 255, 255, 0.16);
+  --app-border: rgba(255, 255, 255, 0.12);
+  --app-hover: rgba(255, 255, 255, 0.08);
   --app-selected: rgba(10, 132, 255, 0.28);
-  --window-bg: #1c1c1e;
-  --window-header: #2c2c2e;
-  --window-header-inactive: #252528;
-  --window-title: rgba(255, 255, 255, 0.82);
-  --window-border: rgba(255, 255, 255, 0.1);
-  --menu-bg: rgba(44, 44, 46, 0.92);
+  --window-bg: rgba(28, 28, 30, 0.94);
+  --window-header: rgba(255, 255, 255, 0.04);
+  --window-header-inactive: rgba(255, 255, 255, 0.02);
+  --window-title: rgba(255, 255, 255, 0.86);
+  --window-border: rgba(255, 255, 255, 0.16);
+  --menu-bg: rgba(32, 32, 34, 0.92);
   --menu-fg: #f2f2f7;
   --menu-border: rgba(255, 255, 255, 0.12);
   --desktop-scrim: linear-gradient(
@@ -48,23 +48,23 @@ html[data-theme="light"] {
   --toggle-bg: rgba(0, 0, 0, 0.08);
   --toggle-active: #ffffff;
   --toggle-active-fg: #1d1d1f;
-  --app-bg: #f4f5f7;
-  --app-bg-2: #eef0f3;
-  --app-sidebar: #6d7278;
+  --app-bg: rgba(246, 246, 247, 0.94);
+  --app-bg-2: rgba(255, 255, 255, 0.55);
+  --app-sidebar: rgba(236, 236, 239, 0.94);
   --app-fg: #1d1d1f;
   --app-title: #111111;
   --app-muted: #6b7280;
-  --app-card: #ffffff;
-  --app-input: #ffffff;
+  --app-card: rgba(255, 255, 255, 0.48);
+  --app-input: rgba(255, 255, 255, 0.62);
   --app-border: rgba(0, 0, 0, 0.08);
   --app-hover: rgba(14, 165, 233, 0.08);
   --app-selected: rgba(14, 165, 233, 0.16);
-  --window-bg: #f6f6f7;
-  --window-header: #ececed;
-  --window-header-inactive: #f3f3f4;
+  --window-bg: rgba(246, 246, 247, 0.96);
+  --window-header: rgba(255, 255, 255, 0.28);
+  --window-header-inactive: rgba(255, 255, 255, 0.14);
   --window-title: #3f3f46;
-  --window-border: rgba(255, 255, 255, 0.7);
-  --menu-bg: rgba(255, 255, 255, 0.9);
+  --window-border: rgba(255, 255, 255, 0.55);
+  --menu-bg: rgba(255, 255, 255, 0.94);
   --menu-fg: #1d1d1f;
   --menu-border: rgba(0, 0, 0, 0.1);
   --desktop-scrim: linear-gradient(
@@ -95,12 +95,49 @@ body {
 }
 
 .sui-app {
-  background: var(--app-bg);
+  background: transparent;
   color: var(--app-fg);
 }
 
 .sui-app-2 {
   background: var(--app-bg-2);
+}
+
+.sui-sidebar {
+  background: var(--app-sidebar);
+  color: var(--app-fg);
+  border-right: 1px solid var(--app-border);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+}
+
+.sui-toolbar {
+  background: var(--app-bg-2);
+}
+
+.sui-window-glass {
+  background: var(--window-bg);
+  border-color: var(--window-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 80px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.sui-terminal {
+  background: rgba(10, 10, 12, 0.82);
+}
+
+.sui-window-header {
+  background: var(--window-header);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.sui-terminal .xterm,
+.sui-terminal .xterm-viewport,
+.sui-terminal .xterm-screen {
+  background: transparent !important;
 }
 
 .sui-title {
@@ -114,6 +151,14 @@ body {
 .sui-card {
   background: var(--app-card);
   border: 1px solid var(--app-border);
+}
+
+.sui-glass-card {
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
 }
 
 .sui-input {
@@ -138,6 +183,8 @@ body {
   background: var(--menu-bg);
   color: var(--menu-fg);
   border-color: var(--menu-border);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
 @keyframes window-in {
@@ -265,4 +312,457 @@ body {
 
 .sui-server-input option {
   color: #111;
+}
+
+.sui-dock {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 14px 20px 12px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 18, 20, 0.52);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.32),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  box-sizing: border-box;
+}
+
+.sui-dock:hover {
+  background: rgba(22, 22, 24, 0.62);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.sui-dock-slot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 1px;
+  background: transparent;
+  overflow: visible;
+}
+
+.sui-dock-slot:focus-visible .sui-dock-icon {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.88),
+    0 4px 10px rgba(0, 0, 0, 0.28);
+}
+
+.sui-dock-motion {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  will-change: transform;
+  overflow: visible;
+}
+
+.sui-dock-lift {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.sui-dock-icon-shell {
+  position: relative;
+  display: block;
+  flex: none;
+  transform: scale(var(--dock-scale, 1));
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.sui-dock-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: hidden;
+  border-radius: 22%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.sui-mac-app-icon {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 22%;
+}
+
+.sui-mac-dusk-glyph {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.sui-dock-indicator {
+  flex: none;
+  margin-top: 3px;
+  height: 4px;
+  width: 4px;
+  border-radius: 999px;
+  transition:
+    opacity 140ms ease,
+    background-color 140ms ease;
+}
+
+.sui-dock-separator {
+  position: absolute;
+  left: calc((1 - var(--dock-scale, 1)) * 50% - 12px);
+  top: 10px;
+  height: 28px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+
+.sui-dock-slot:has(.sui-dock-separator) {
+  margin-left: 8px;
+  padding-left: 12px;
+}
+
+.sui-dock-tooltip {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(20, 22, 26, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(var(--dock-tooltip-x, 0px)) translateY(6px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.sui-dock-tooltip[data-show="true"] {
+  opacity: 1;
+  transform: translateX(var(--dock-tooltip-x, 0px)) translateY(0);
+}
+
+.sui-dock-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(20, 22, 26, 0.35);
+  animation: dock-badge-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dock-bounce {
+  0% {
+    translate: 0 0;
+  }
+  28% {
+    translate: 0 4px;
+  }
+  52% {
+    translate: 0 -14px;
+  }
+  72% {
+    translate: 0 -4px;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+
+.sui-dock-bounce {
+  animation: dock-bounce 380ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dock-badge-in {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sui-folder-paper {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sui-folder-paper-a {
+  transform: translateY(8px) rotate(3deg);
+}
+
+.sui-folder-paper-b {
+  transform: translateY(6px) rotate(-2deg);
+}
+
+.sui-folder-tab {
+  transform-box: fill-box;
+  transform-origin: 20% 100%;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sui-dock-slot:hover .sui-folder-paper-a,
+.sui-mac-app-icon:hover .sui-folder-paper-a {
+  transform: translateY(-16px) rotate(6deg);
+}
+
+.sui-dock-slot:hover .sui-folder-paper-b,
+.sui-mac-app-icon:hover .sui-folder-paper-b {
+  transform: translateY(-20px) rotate(-8deg);
+}
+
+.sui-dock-slot:hover .sui-folder-tab,
+.sui-mac-app-icon:hover .sui-folder-tab {
+  transform: translateY(-2px);
+}
+
+.sui-term-prompt,
+.sui-term-underscore,
+.sui-term-ch,
+.sui-term-cursor {
+  transform-box: fill-box;
+  transition:
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease;
+}
+
+.sui-term-prompt {
+  transform-origin: 20% 50%;
+}
+
+.sui-term-underscore {
+  transform-origin: 0% 50%;
+}
+
+.sui-term-ch,
+.sui-term-cursor {
+  opacity: 0;
+}
+
+.sui-term-ch-1 {
+  transform: translateX(-6px);
+}
+
+.sui-term-ch-2 {
+  transform: translateX(-4px);
+}
+
+.sui-term-ch-3 {
+  transform: translateX(-2px);
+}
+
+.sui-dock-slot:hover .sui-term-prompt,
+.sui-mac-app-icon:hover .sui-term-prompt {
+  transform: translateX(-2px);
+}
+
+.sui-dock-slot:hover .sui-term-underscore,
+.sui-mac-app-icon:hover .sui-term-underscore {
+  opacity: 0;
+  transform: scaleX(0.15);
+}
+
+.sui-dock-slot:hover .sui-term-ch,
+.sui-mac-app-icon:hover .sui-term-ch {
+  opacity: 1;
+  transform: none;
+}
+
+.sui-dock-slot:hover .sui-term-ch-1,
+.sui-mac-app-icon:hover .sui-term-ch-1 {
+  transition-delay: 40ms;
+}
+
+.sui-dock-slot:hover .sui-term-ch-2,
+.sui-mac-app-icon:hover .sui-term-ch-2 {
+  transition-delay: 110ms;
+}
+
+.sui-dock-slot:hover .sui-term-ch-3,
+.sui-mac-app-icon:hover .sui-term-ch-3 {
+  transition-delay: 180ms;
+}
+
+.sui-dock-slot:hover .sui-term-cursor,
+.sui-mac-app-icon:hover .sui-term-cursor {
+  opacity: 1;
+  transition-delay: 240ms;
+  animation: sui-term-blink 900ms step-end 240ms infinite;
+}
+
+@keyframes sui-term-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.sui-settings-gear {
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+  transition: transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sui-dock-slot:hover .sui-settings-gear,
+.sui-mac-app-icon:hover .sui-settings-gear {
+  transform: rotate(50deg);
+}
+
+.sui-info-icon {
+  background: rgba(12, 12, 14, 0.58);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.sui-info-ring,
+.sui-info-dot,
+.sui-info-stem,
+.sui-info-ripple {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition:
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 280ms ease;
+}
+
+.sui-info-ripple {
+  opacity: 0;
+  transform: scale(0.82);
+}
+
+.sui-dock-slot:hover .sui-info-ripple,
+.sui-mac-app-icon:hover .sui-info-ripple {
+  opacity: 0.55;
+  transform: scale(1);
+}
+
+.sui-dock-slot:hover .sui-info-ring,
+.sui-mac-app-icon:hover .sui-info-ring {
+  transform: scale(0.94);
+}
+
+.sui-dock-slot:hover .sui-info-dot,
+.sui-mac-app-icon:hover .sui-info-dot {
+  transform: translateY(-4px);
+}
+
+.sui-dock-slot:hover .sui-info-stem,
+.sui-mac-app-icon:hover .sui-info-stem {
+  transform: translateY(3px);
+}
+
+.sui-editor-bracket,
+.sui-editor-zero,
+.sui-editor-caret {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sui-dock-slot:hover .sui-editor-bracket-l,
+.sui-mac-app-icon:hover .sui-editor-bracket-l {
+  transform: translateX(6px);
+}
+
+.sui-dock-slot:hover .sui-editor-bracket-r,
+.sui-mac-app-icon:hover .sui-editor-bracket-r {
+  transform: translateX(-6px);
+}
+
+.sui-dock-slot:hover .sui-editor-zero,
+.sui-mac-app-icon:hover .sui-editor-zero {
+  transform: scale(0.96);
+}
+
+.sui-dock-slot:hover .sui-editor-caret,
+.sui-mac-app-icon:hover .sui-editor-caret {
+  animation: sui-editor-blink 900ms step-end infinite;
+}
+
+@keyframes sui-editor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.sui-editor-hero {
+  border-radius: 22%;
+  box-shadow: 0 12px 40px rgba(255, 176, 0, 0.22);
+}
+
+.sui-editor-hero .sui-mac-app-icon {
+  filter: drop-shadow(0 0 18px rgba(255, 176, 0, 0.35));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sui-dock-bounce,
+  .sui-dock-badge {
+    animation: none;
+  }
+
+  .sui-folder-paper,
+  .sui-folder-tab,
+  .sui-term-prompt,
+  .sui-term-underscore,
+  .sui-term-ch,
+  .sui-term-cursor,
+  .sui-settings-gear,
+  .sui-info-ring,
+  .sui-info-dot,
+  .sui-info-stem,
+  .sui-info-ripple,
+  .sui-editor-bracket,
+  .sui-editor-zero,
+  .sui-editor-caret {
+    transition: none;
+  }
+
+  .sui-dock-slot:hover .sui-term-cursor,
+  .sui-mac-app-icon:hover .sui-term-cursor,
+  .sui-dock-slot:hover .sui-editor-caret,
+  .sui-mac-app-icon:hover .sui-editor-caret {
+    animation: none;
+    opacity: 1;
+  }
+
+  .sui-dock-tooltip {
+    transition: none;
+  }
 }

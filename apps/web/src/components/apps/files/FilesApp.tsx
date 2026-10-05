@@ -4,14 +4,18 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
+  baseName,
+  buildMoveDestination,
   createDirectory,
   createFile,
   deleteFile,
   downloadUrl,
+  isValidMove,
   joinPath,
   listFiles,
   parentPath,
   renameFile,
+  suggestUniqueName,
   uploadFile,
   type FileEntry,
 } from "@/src/lib/api/files";
@@ -33,6 +37,14 @@ type MenuState = {
   x: number;
   y: number;
   entry: FileEntry | null;
+};
+
+type PendingMove = {
+  from: string;
+  to: string;
+  destDir: string;
+  name: string;
+  destNames: string[];
 };
 
 export function FilesApp() {
@@ -60,6 +72,7 @@ export function FilesApp() {
     type: "info" | "success" | "error";
     message: string;
   } | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const serverId = selectedServer?.id || "";
@@ -125,6 +138,7 @@ export function FilesApp() {
     setPath(normalized);
     setMenu(null);
     setDownloadStatus(null);
+    setPendingMove(null);
     void load(normalized);
   }
 
@@ -381,6 +395,59 @@ export function FilesApp() {
     }
   }
 
+  async function handleMove(sourcePath: string, destDir: string) {
+    const source = entries.find((entry) => entry.path === sourcePath);
+    if (!source) {
+      setError("unable to move: item not found");
+      return;
+    }
+    if (!isValidMove(sourcePath, source.type, destDir)) {
+      setError("cannot move an item into itself or its current location");
+      return;
+    }
+    const to = buildMoveDestination(destDir, sourcePath);
+    if (sourcePath === to) return;
+    try {
+      setError(null);
+      const destEntries = destDir === path ? entries : (await listFiles(serverId, destDir)).entries;
+      if (destEntries.some((entry) => entry.name === source.name && entry.path !== sourcePath)) {
+        setPendingMove({
+          from: sourcePath,
+          to,
+          destDir,
+          name: source.name,
+          destNames: destEntries.map((entry) => entry.name),
+        });
+        return;
+      }
+      await renameFile(serverId, sourcePath, to);
+      clearSelection();
+      await load(path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to move ${baseName(sourcePath)}`);
+    }
+  }
+
+  async function resolveMove(mode: "replace" | "rename") {
+    if (!pendingMove) return;
+    try {
+      setError(null);
+      const to =
+        mode === "replace"
+          ? pendingMove.to
+          : joinPath(
+              pendingMove.destDir,
+              suggestUniqueName(pendingMove.destNames, pendingMove.name),
+            );
+      await renameFile(serverId, pendingMove.from, to);
+      setPendingMove(null);
+      clearSelection();
+      await load(path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to move ${pendingMove.name}`);
+    }
+  }
+
   function openContextMenu(event: MouseEvent, entry: FileEntry | null) {
     event.preventDefault();
     event.stopPropagation();
@@ -459,16 +526,16 @@ export function FilesApp() {
         }
       }}
     >
-      <aside className="flex w-[188px] shrink-0 flex-col overflow-y-auto bg-[#6d7278] px-3 py-4 text-[12px] text-white/90">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+      <aside className="sui-sidebar flex w-[188px] shrink-0 flex-col overflow-y-auto px-3 py-4 text-[12px]">
+        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] sui-muted">
           Favorites
         </p>
         {places.map((place) => (
           <button
             key={place.path}
             type="button"
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/70 ${
-              path === place.path ? "bg-white/15" : ""
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none sui-hover focus-visible:ring-2 focus-visible:ring-sky-400 ${
+              path === place.path ? "sui-selected" : ""
             }`}
             onClick={() => goTo(place.path)}
           >
@@ -478,7 +545,7 @@ export function FilesApp() {
         ))}
       </aside>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col sui-app">
-        <div className="flex items-center gap-2 border-b sui-hairline px-3 py-2">
+        <div className="sui-toolbar flex items-center gap-2 border-b sui-hairline px-3 py-2">
           <button
             type="button"
             aria-label="Back"
@@ -668,6 +735,35 @@ export function FilesApp() {
             </button>
           </div>
         ) : null}
+        {pendingMove ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950"
+            role="alertdialog"
+            aria-labelledby="move-conflict-title"
+          >
+            <p id="move-conflict-title" className="min-w-0 flex-1">
+              An item named <span className="font-medium">“{pendingMove.name}”</span> already
+              exists.
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setPendingMove(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void resolveMove("replace")}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void resolveMove("rename")}
+            >
+              Rename
+            </button>
+          </div>
+        ) : null}
         {loading ? (
           <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-neutral-400">
             Loading files…
@@ -690,6 +786,7 @@ export function FilesApp() {
             onOpen={openEntry}
             onParent={() => path !== "/" && goTo(parentPath(path))}
             onContextMenu={openContextMenu}
+            onMove={(source, dest) => void handleMove(source, dest)}
           />
         )}
         <div className="flex shrink-0 items-center justify-between border-t sui-hairline px-4 py-1.5 text-[11px] sui-muted">

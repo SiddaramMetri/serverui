@@ -33,7 +33,7 @@ export function FileToolbar({
   const count = entries.length;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
+    <div className="sui-toolbar flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
       {count > 0 ? (
         <span className="inline-flex items-center gap-1 rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950/80 dark:text-sky-300">
           {count} {count === 1 ? "item" : "items"} selected

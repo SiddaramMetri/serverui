@@ -6,6 +6,7 @@ import { connectServer } from "@/src/lib/api/server";
 import { friendlyError } from "@/src/lib/errors";
 import { useSession } from "@/src/lib/session";
 import { BrandMark } from "@/src/components/brand/BrandMark";
+import { WallpaperBackdrop } from "@/src/lib/wallpaper";
 
 type BootScreenProps = {
   server: Server;
@@ -173,10 +174,9 @@ export function BootScreen({ server, onComplete }: BootScreenProps) {
 function BootFrame({ children }: { children: ReactNode }) {
   return (
     <div className="relative flex h-dvh w-full items-center justify-center overflow-hidden bg-[#07090c] text-white">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-25"
-        style={{ backgroundImage: "url('/wallpaper.jpg?v=luffy')" }}
+      <WallpaperBackdrop
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        opacity={0.25}
       />
       <div
         aria-hidden

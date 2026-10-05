@@ -11,7 +11,7 @@ export function AudioViewer({ file, onClose }: { file: ViewerFile; onClose: () =
 
   if (error) {
     return (
-      <div className="h-full bg-[#161616]">
+      <div className="h-full bg-transparent">
         <ViewerMessage
           tone="danger"
           title="Unable to read file"
@@ -24,7 +24,7 @@ export function AudioViewer({ file, onClose }: { file: ViewerFile; onClose: () =
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#161616] px-8 text-white">
+    <div className="flex h-full flex-col items-center justify-center gap-6 bg-transparent px-8 text-white">
       <p className="text-4xl" aria-hidden>
         ♪
       </p>

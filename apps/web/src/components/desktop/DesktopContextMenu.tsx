@@ -55,7 +55,7 @@ export function DesktopContextMenu({
         }}
       />
       <MenuItem
-        label="Server Dashboard"
+        label="System Monitor"
         onSelect={() => {
           openWindow("dashboard");
           onClose();
