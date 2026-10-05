@@ -3,23 +3,42 @@ package servers
 import (
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
+)
+
+// Limits shared with the web form (apps/web/src/lib/server-validation.ts).
+const (
+	maxNameLength     = 64
+	maxUsernameLength = 64
 )
 
 func Validate(input Input, requireSecret bool) error {
-	if strings.TrimSpace(input.Name) == "" {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
 		return fmt.Errorf("server name is required")
 	}
+	if utf8.RuneCountInString(name) > maxNameLength {
+		return fmt.Errorf("server name is too long")
+	}
+	return ValidateConnection(input, requireSecret)
+}
+
+// ValidateConnection is Validate without the name check, for testing unsaved details.
+func ValidateConnection(input Input, requireSecret bool) error {
 	if err := validateHost(input.Host); err != nil {
 		return err
 	}
 	if input.Port < 1 || input.Port > 65535 {
 		return fmt.Errorf("invalid port")
 	}
-	if strings.TrimSpace(input.Username) == "" {
+	username := strings.TrimSpace(input.Username)
+	if username == "" {
 		return fmt.Errorf("username is required")
+	}
+	if len(username) > maxUsernameLength || strings.ContainsAny(username, " \t\n:@/") {
+		return fmt.Errorf("invalid username")
 	}
 	switch input.AuthType {
 	case AuthPassword:
@@ -47,7 +66,8 @@ func validateHost(host string) error {
 	if ip := net.ParseIP(host); ip != nil {
 		return nil
 	}
-	if _, err := strconv.Atoi(host); err == nil {
+	// Digits and dots only, but not a valid IP (e.g. 203.0.113.300).
+	if strings.Trim(host, "0123456789.") == "" {
 		return fmt.Errorf("invalid host")
 	}
 	for _, r := range host {

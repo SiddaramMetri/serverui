@@ -1,6 +1,9 @@
 package servers
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateRejectsInvalid(t *testing.T) {
 	valid := Input{
@@ -26,6 +29,11 @@ func TestValidateRejectsInvalid(t *testing.T) {
 		{"auth", func(in *Input) { in.AuthType = "token" }, "invalid authentication type", true},
 		{"password", func(in *Input) { in.Password = "" }, "password is required", true},
 		{"key", func(in *Input) { in.AuthType = AuthPrivateKey; in.PrivateKey = "" }, "private key is required", true},
+		{"bad ipv4", func(in *Input) { in.Host = "203.0.113.300" }, "invalid host", true},
+		{"short ipv4", func(in *Input) { in.Host = "10.0.0" }, "invalid host", true},
+		{"long name", func(in *Input) { in.Name = strings.Repeat("x", 65) }, "server name is too long", true},
+		{"username space", func(in *Input) { in.Username = "de ploy" }, "invalid username", true},
+		{"username at", func(in *Input) { in.Username = "root@host" }, "invalid username", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
