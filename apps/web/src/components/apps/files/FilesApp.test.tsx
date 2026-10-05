@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesApp } from "@/src/components/apps/files/FilesApp";
@@ -76,13 +76,17 @@ describe("FilesApp multi-select", () => {
 
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    const checkAlpha = screen.getByRole("checkbox", { name: "Select alpha.txt" });
-    const checkBeta = screen.getByRole("checkbox", { name: "Select beta.txt" });
+    const rowAlpha = screen.getByText("alpha.txt").closest("tr")!;
+    const rowBeta = screen.getByText("beta.txt").closest("tr")!;
 
-    await user.click(checkAlpha);
+    // Select alpha.txt
+    fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
+    fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
     expect(screen.getAllByText("1 item selected").length).toBeGreaterThanOrEqual(1);
 
-    await user.click(checkBeta);
+    // Ctrl+Click beta.txt
+    fireEvent.mouseDown(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
+    fireEvent.mouseUp(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
     expect(screen.getAllByText("2 items selected").length).toBeGreaterThanOrEqual(1);
 
     // Clear selection
@@ -92,7 +96,7 @@ describe("FilesApp multi-select", () => {
     expect(screen.queryByText("2 items selected")).not.toBeInTheDocument();
   });
 
-  it("selects all items via header checkbox", async () => {
+  it("selects all items via toolbar Select all", async () => {
     const user = userEvent.setup();
 
     render(
@@ -103,13 +107,13 @@ describe("FilesApp multi-select", () => {
 
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    const selectAllCheckbox = screen.getByRole("checkbox", { name: "Select all" });
-    await user.click(selectAllCheckbox);
+    const selectAllBtn = screen.getByRole("button", { name: "Select all" });
+    await user.click(selectAllBtn);
 
     expect(screen.getAllByText("3 items selected").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("checkbox", { name: "Select alpha.txt" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Select beta.txt" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Select gamma_folder" })).toBeChecked();
+    expect(screen.getByText("alpha.txt").closest("tr")).toHaveClass("sui-selected");
+    expect(screen.getByText("beta.txt").closest("tr")).toHaveClass("sui-selected");
+    expect(screen.getByText("gamma_folder").closest("tr")).toHaveClass("sui-selected");
   });
 
   it("handles multi-item delete confirmation and execution", async () => {
@@ -124,8 +128,14 @@ describe("FilesApp multi-select", () => {
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
     // Select alpha and beta
-    await user.click(screen.getByRole("checkbox", { name: "Select alpha.txt" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select beta.txt" }));
+    const rowAlpha = screen.getByText("alpha.txt").closest("tr")!;
+    const rowBeta = screen.getByText("beta.txt").closest("tr")!;
+
+    fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
+    fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
+
+    fireEvent.mouseDown(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
+    fireEvent.mouseUp(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
 
     // Click Delete in toolbar
     const deleteBtn = screen.getByRole("button", { name: "Delete" });
@@ -158,8 +168,14 @@ describe("FilesApp multi-select", () => {
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
     // Select alpha.txt and gamma_folder
-    await user.click(screen.getByRole("checkbox", { name: "Select alpha.txt" }));
-    await user.click(screen.getByRole("checkbox", { name: "Select gamma_folder" }));
+    const rowAlpha = screen.getByText("alpha.txt").closest("tr")!;
+    const rowGamma = screen.getByText("gamma_folder").closest("tr")!;
+
+    fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
+    fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
+
+    fireEvent.mouseDown(rowGamma, { clientX: 10, clientY: 30, ctrlKey: true });
+    fireEvent.mouseUp(rowGamma, { clientX: 10, clientY: 30, ctrlKey: true });
 
     // Click Download
     const downloadBtn = screen.getByRole("button", { name: "Download" });
@@ -185,7 +201,9 @@ describe("FilesApp multi-select", () => {
     expect(await screen.findByText("gamma_folder")).toBeInTheDocument();
 
     // Select only gamma_folder
-    await user.click(screen.getByRole("checkbox", { name: "Select gamma_folder" }));
+    const rowGamma = screen.getByText("gamma_folder").closest("tr")!;
+    fireEvent.mouseDown(rowGamma, { clientX: 10, clientY: 30 });
+    fireEvent.mouseUp(rowGamma, { clientX: 10, clientY: 30 });
 
     // Click Download
     const downloadBtn = screen.getByRole("button", { name: "Download" });

@@ -234,10 +234,18 @@ export function FilesApp() {
     setLastSelectedPath(null);
   }
 
-  function handleRowSelect(targetPath: string, event: MouseEvent) {
-    if (event.shiftKey) {
+  function handleSelectionChange(paths: Set<string>) {
+    setSelectedPaths(paths);
+    if (paths.size > 0) {
+      const last = visible.filter((e) => paths.has(e.path)).pop();
+      if (last) setLastSelectedPath(last.path);
+    }
+  }
+
+  function handleRowSelect(targetPath: string, event?: MouseEvent) {
+    if (event?.shiftKey) {
       selectRange(targetPath);
-    } else if (event.ctrlKey || event.metaKey) {
+    } else if (event?.ctrlKey || event?.metaKey) {
       toggleSelect(targetPath);
     } else {
       selectSingle(targetPath);
@@ -676,6 +684,7 @@ export function FilesApp() {
             onSelect={handleRowSelect}
             onToggleSelect={toggleSelect}
             onSelectRange={selectRange}
+            onSelectionChange={handleSelectionChange}
             onSelectAll={selectAll}
             onClearSelection={clearSelection}
             onOpen={openEntry}

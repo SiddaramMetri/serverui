@@ -10,10 +10,17 @@ import {
   FileVideo,
   Folder,
 } from "lucide-react";
-import type { MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { getFileType } from "@/src/lib/files/file-type";
 import { formatModified, formatSize } from "@/src/lib/files/format";
 import type { FileEntry } from "@/src/lib/api/files";
+
+type MarqueeBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 export function FileList({
   path,
@@ -23,7 +30,7 @@ export function FileList({
   onSelect,
   onToggleSelect,
   onSelectRange,
-  onSelectAll,
+  onSelectionChange,
   onClearSelection,
   onOpen,
   onParent,
@@ -33,56 +40,157 @@ export function FileList({
   entries: FileEntry[];
   selected?: string | null;
   selectedPaths?: Set<string>;
-  onSelect: (path: string, event: MouseEvent) => void;
+  onSelect: (path: string, event?: MouseEvent) => void;
   onToggleSelect?: (path: string) => void;
   onSelectRange?: (path: string) => void;
+  onSelectionChange?: (paths: Set<string>) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
   onOpen: (entry: FileEntry) => void;
   onParent: () => void;
   onContextMenu: (event: MouseEvent, entry: FileEntry | null) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
+
   const activeSelected = selectedPaths ?? (selected ? new Set([selected]) : new Set<string>());
-  const allSelected = entries.length > 0 && entries.every((e) => activeSelected.has(e.path));
-  const someSelected = entries.some((e) => activeSelected.has(e.path));
+
+  function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const target = e.target as HTMLElement;
+    const isHeader = Boolean(target.closest("thead"));
+    const isParentRow = Boolean(target.closest("tr[data-parent]"));
+    if (isHeader || isParentRow) return;
+
+    const tr = target.closest("tr[data-path]") as HTMLTableRowElement | null;
+    const clickedPath = tr?.getAttribute("data-path") ?? null;
+
+    const initialClientX = e.clientX;
+    const initialClientY = e.clientY;
+
+    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+
+    let dragStarted = false;
+    const baseSelection = new Set(activeSelected);
+
+    function handleMouseMove(moveEvent: globalThis.MouseEvent) {
+      const dist = Math.hypot(
+        moveEvent.clientX - initialClientX,
+        moveEvent.clientY - initialClientY,
+      );
+
+      if (!dragStarted && dist > 4) {
+        dragStarted = true;
+        document.body.style.userSelect = "none";
+      }
+
+      if (dragStarted && container) {
+        const containerRect = container.getBoundingClientRect();
+
+        const boxViewportLeft = Math.min(initialClientX, moveEvent.clientX);
+        const boxViewportRight = Math.max(initialClientX, moveEvent.clientX);
+        const boxViewportTop = Math.min(initialClientY, moveEvent.clientY);
+        const boxViewportBottom = Math.max(initialClientY, moveEvent.clientY);
+
+        setMarquee({
+          left: boxViewportLeft - containerRect.left + container.scrollLeft,
+          top: boxViewportTop - containerRect.top + container.scrollTop,
+          width: boxViewportRight - boxViewportLeft,
+          height: boxViewportBottom - boxViewportTop,
+        });
+
+        const rows = container.querySelectorAll<HTMLTableRowElement>("tr[data-path]");
+        const intersectingPaths = new Set<string>();
+
+        rows.forEach((row) => {
+          const rowPath = row.getAttribute("data-path");
+          if (!rowPath) return;
+
+          const rowRect = row.getBoundingClientRect();
+          const intersects =
+            boxViewportLeft < rowRect.right &&
+            boxViewportRight > rowRect.left &&
+            boxViewportTop < rowRect.bottom &&
+            boxViewportBottom > rowRect.top;
+
+          if (intersects) {
+            intersectingPaths.add(rowPath);
+          }
+        });
+
+        if (isCtrlOrMeta) {
+          const next = new Set(baseSelection);
+          intersectingPaths.forEach((p) => {
+            if (baseSelection.has(p)) {
+              next.delete(p);
+            } else {
+              next.add(p);
+            }
+          });
+          onSelectionChange?.(next);
+        } else {
+          onSelectionChange?.(intersectingPaths);
+        }
+      }
+    }
+
+    function handleMouseUp(upEvent: globalThis.MouseEvent) {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+
+      if (dragStarted) {
+        setMarquee(null);
+      } else {
+        if (clickedPath) {
+          if (isShift) {
+            onSelectRange?.(clickedPath);
+          } else if (isCtrlOrMeta) {
+            onToggleSelect?.(clickedPath);
+          } else {
+            onSelect(clickedPath, upEvent as unknown as MouseEvent);
+          }
+        } else {
+          onClearSelection?.();
+        }
+      }
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }
 
   return (
     <div
-      className="min-h-0 flex-1 overflow-y-auto"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
-          onClearSelection?.();
-        }
-      }}
+      ref={containerRef}
+      className="relative min-h-0 flex-1 overflow-y-auto select-none"
+      onMouseDown={handleMouseDown}
       onContextMenu={(event) => {
         if (event.target === event.currentTarget) {
           onContextMenu(event, null);
         }
       }}
     >
+      {marquee ? (
+        <div
+          data-testid="selection-marquee"
+          className="pointer-events-none absolute z-20 rounded-[2px] border border-sky-500 bg-sky-500/20 dark:border-sky-400 dark:bg-sky-400/25"
+          style={{
+            left: marquee.left,
+            top: marquee.top,
+            width: marquee.width,
+            height: marquee.height,
+          }}
+        />
+      ) : null}
       <table className="w-full text-left text-[13px]">
         <thead className="sticky top-0 z-10 sui-app text-[11px] sui-muted">
           <tr className="border-b sui-hairline">
-            <th className="w-10 px-3 py-2 text-center">
-              <input
-                type="checkbox"
-                aria-label="Select all"
-                checked={allSelected}
-                ref={(el) => {
-                  if (el) {
-                    el.indeterminate = someSelected && !allSelected;
-                  }
-                }}
-                onChange={() => {
-                  if (allSelected) {
-                    onClearSelection?.();
-                  } else {
-                    onSelectAll?.();
-                  }
-                }}
-                className="size-3.5 rounded border-neutral-300 text-sky-600 focus:ring-sky-400 dark:border-neutral-600 dark:bg-neutral-800"
-              />
-            </th>
             <th className="px-4 py-2 font-medium">Name</th>
             <th className="px-4 py-2 font-medium">Size</th>
             <th className="px-4 py-2 font-medium">Modified</th>
@@ -90,17 +198,17 @@ export function FileList({
         </thead>
         <tbody>
           {path !== "/" ? (
-            <tr className="cursor-default border-b sui-hairline sui-hover" onDoubleClick={onParent}>
-              <td className="w-10 px-3 py-1.5" />
+            <tr
+              data-parent="true"
+              className="cursor-default border-b sui-hairline sui-hover"
+              onClick={onParent}
+              onDoubleClick={onParent}
+            >
               <td className="px-4 py-1.5" colSpan={3}>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  onClick={onParent}
-                >
+                <div className="flex items-center gap-2">
                   <Folder aria-hidden className="size-4 fill-sky-400 text-sky-500" />
-                  ..
-                </button>
+                  <span>..</span>
+                </div>
               </td>
             </tr>
           ) : null}
@@ -109,9 +217,6 @@ export function FileList({
               key={entry.path}
               entry={entry}
               selected={activeSelected.has(entry.path)}
-              onSelect={(event) => onSelect(entry.path, event)}
-              onToggleSelect={() => onToggleSelect?.(entry.path)}
-              onSelectRange={() => onSelectRange?.(entry.path)}
               onOpen={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(event, entry)}
             />
@@ -125,61 +230,26 @@ export function FileList({
 function FileItem({
   entry,
   selected,
-  onSelect,
-  onToggleSelect,
-  onSelectRange,
   onOpen,
   onContextMenu,
 }: {
   entry: FileEntry;
   selected: boolean;
-  onSelect: (event: MouseEvent) => void;
-  onToggleSelect?: () => void;
-  onSelectRange?: () => void;
   onOpen: () => void;
   onContextMenu: (event: MouseEvent) => void;
 }) {
   return (
     <tr
+      data-path={entry.path}
       className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""}`}
-      onClick={(e) => onSelect(e)}
       onDoubleClick={onOpen}
       onContextMenu={onContextMenu}
     >
-      <td className="w-10 px-3 py-1.5 text-center">
-        <input
-          type="checkbox"
-          aria-label={`Select ${entry.name}`}
-          checked={selected}
-          onChange={() => {
-            onToggleSelect?.();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (e.shiftKey) {
-              onSelectRange?.();
-            }
-          }}
-          className="size-3.5 rounded border-neutral-300 text-sky-600 focus:ring-sky-400 dark:border-neutral-600 dark:bg-neutral-800"
-        />
-      </td>
       <td className="px-4 py-1.5">
-        <button
-          type="button"
-          className="flex max-w-full items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(e);
-          }}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpen();
-          }}
-        >
+        <div className="flex max-w-full items-center gap-2">
           <EntryIcon entry={entry} />
           <span className="truncate">{entry.name}</span>
-        </button>
+        </div>
       </td>
       <td className="px-4 py-1.5 whitespace-nowrap sui-muted">
         {entry.type === "dir" ? "—" : formatSize(entry.size)}
