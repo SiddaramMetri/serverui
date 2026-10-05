@@ -1,10 +1,44 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { CheckCircle2, Loader2, PlugZap, X, XCircle } from "lucide-react";
+import { testServerDraft } from "@/src/lib/api/server";
+import { formatConnectionTestMessage } from "@/src/lib/errors";
 import type { NewServerInput, Server } from "@/src/lib/servers";
+import {
+  FIELD_ORDER,
+  validateServerForm,
+  type AuthMethod,
+  type FieldErrors,
+  type ServerField,
+  type ValidationScope,
+} from "@/src/lib/server-validation";
+import { formatApiError } from "@/src/lib/session";
 
-type AuthMethod = "password" | "private_key";
+type TestState = {
+  /** Snapshot of the tested fields; the result is hidden once they change. */
+  key: string;
+  status: "testing" | "ok" | "fail";
+  message?: string;
+};
+
+const NEUTRAL_BUTTON = "border-white/14 text-white/85 hover:bg-white/8 hover:text-white";
+
+/** Icon and colours for each Test Connection state, shared by the button and result line. */
+const TEST_UI = {
+  idle: { Icon: PlugZap, line: "", button: NEUTRAL_BUTTON },
+  testing: { Icon: Loader2, line: "bg-white/6 text-white/70", button: NEUTRAL_BUTTON },
+  ok: {
+    Icon: CheckCircle2,
+    line: "bg-emerald-400/10 text-emerald-300",
+    button: "border-emerald-400/45 bg-emerald-400/14 text-emerald-300 hover:bg-emerald-400/20",
+  },
+  fail: {
+    Icon: XCircle,
+    line: "bg-red-400/10 text-red-300",
+    button: "border-red-400/45 bg-red-400/12 text-red-300 hover:bg-red-400/18",
+  },
+} as const;
 
 export function AddServerModal({
   server,
@@ -24,6 +58,7 @@ export function AddServerModal({
 }) {
   const editing = Boolean(server);
   const titleId = useId();
+  const fieldId = useId();
   const firstField = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(server?.name || "");
   const [address, setAddress] = useState(server?.address || "");
@@ -32,7 +67,38 @@ export function AddServerModal({
   const [auth, setAuth] = useState<AuthMethod>(server?.authType || "password");
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
+  // Errors show after a field is edited and left, or for all fields on Save/Test.
+  const [touched, setTouched] = useState<Set<ServerField>>(new Set());
+  const [edited, setEdited] = useState<Set<ServerField>>(new Set());
+  const [attempt, setAttempt] = useState<ValidationScope | null>(null);
+  const [test, setTest] = useState<TestState | null>(null);
+  const testAbort = useRef<AbortController | null>(null);
+
+  const values = { name, host: address, port, username, auth, password, privateKey };
+  const context = { editing, savedAuth: server?.authType };
+  const errors = validateServerForm(values, context, "save");
+  const visibleErrors: FieldErrors = {};
+  for (const field of FIELD_ORDER) {
+    const shown =
+      touched.has(field) || attempt === "save" || (attempt === "connection" && field !== "name");
+    if (shown && errors[field]) visibleErrors[field] = errors[field];
+  }
+  const errorCount = Object.keys(visibleErrors).length;
+
+  const fieldsKey = JSON.stringify([
+    address.trim(),
+    port,
+    username.trim(),
+    auth,
+    password,
+    privateKey,
+  ]);
+  const visibleTest = test?.key === fieldsKey ? test : null;
+  const testUi = TEST_UI[visibleTest?.status ?? "idle"];
+  const spin = visibleTest?.status === "testing" ? " animate-spin" : "";
+
+  // Cancel an in-flight test when the modal closes.
+  useEffect(() => () => testAbort.current?.abort(), []);
 
   useEffect(() => {
     firstField.current?.focus();
@@ -43,36 +109,84 @@ export function AddServerModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const ids = (field: ServerField) => ({
+    input: `${fieldId}-${field}`,
+    error: `${fieldId}-${field}-error`,
+  });
+
+  /** Props that wire an input to its inline error. */
+  function fieldProps(field: ServerField) {
+    const message = visibleErrors[field];
+    return {
+      id: ids(field).input,
+      "aria-invalid": message ? true : undefined,
+      "aria-describedby": message ? ids(field).error : undefined,
+      onInput: () =>
+        setEdited((current) => (current.has(field) ? current : new Set(current).add(field))),
+      onBlur: () => {
+        if (!edited.has(field)) return;
+        setTouched((current) => (current.has(field) ? current : new Set(current).add(field)));
+      },
+    };
+  }
+
+  /** Shows errors for the scope; focuses the first invalid field. Returns true when valid. */
+  function check(scope: ValidationScope) {
+    setAttempt((current) => (current === "save" ? current : scope));
+    const found = validateServerForm(values, context, scope);
+    const first = FIELD_ORDER.find((field) => found[field]);
+    if (!first) return true;
+    const input = document.getElementById(ids(first).input);
+    input?.focus();
+    input?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    return false;
+  }
+
+  async function runTest() {
+    if (!check("connection")) return;
+    testAbort.current?.abort();
+    const controller = new AbortController();
+    testAbort.current = controller;
+    const key = fieldsKey;
+    setTest({ key, status: "testing" });
+    try {
+      const result = await testServerDraft(
+        {
+          host: address.trim(),
+          port: Number(port),
+          username: username.trim(),
+          authType: auth,
+          password: auth === "password" ? password.trim() || undefined : undefined,
+          privateKey: auth === "private_key" ? privateKey.trim() || undefined : undefined,
+        },
+        server?.id,
+        { signal: controller.signal },
+      );
+      // The backend's failure text is already user-facing, so show it as-is.
+      setTest(
+        result.ok
+          ? { key, status: "ok", message: formatConnectionTestMessage(true, result.latencyMs) }
+          : { key, status: "fail", message: result.error || "Connection failed." },
+      );
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setTest({
+        key,
+        status: "fail",
+        message: formatConnectionTestMessage(false, undefined, formatApiError(err, "")),
+      });
+    }
+  }
+
   async function submit(event: FormEvent, connect?: boolean) {
     event.preventDefault();
-    const sshPort = Number(port);
-    if (!name.trim() || !address.trim() || !username.trim()) {
-      setLocalError("Server name, host, and username are required.");
-      return;
-    }
-    if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) {
-      setLocalError("SSH port must be a number between 1 and 65535.");
-      return;
-    }
-    if (!editing && auth === "password" && !password.trim()) {
-      setLocalError("Password is required.");
-      return;
-    }
-    if (!editing && auth === "private_key" && !privateKey.trim()) {
-      setLocalError("Private key is required.");
-      return;
-    }
-    if (editing && auth !== server?.authType && !password.trim() && !privateKey.trim()) {
-      setLocalError("Enter new credentials when changing the authentication method.");
-      return;
-    }
-    setLocalError(null);
+    if (!check("save")) return;
     await onSubmit(
       {
         name: name.trim(),
         address: address.trim(),
         hostname: address.trim(),
-        sshPort,
+        sshPort: Number(port),
         username: username.trim(),
         authType: auth,
         password: password.trim() || undefined,
@@ -93,9 +207,9 @@ export function AddServerModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="sui-card w-full max-w-[440px] overflow-hidden rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] animate-modal-in"
+        className="sui-card flex max-h-full w-full max-w-[440px] flex-col overflow-hidden rounded-[22px] shadow-[0_30px_80px_rgba(0,0,0,0.5)] animate-modal-in"
       >
-        <div className="flex items-center justify-between border-b border-white/8 px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/8 px-5 py-3.5">
           <h2 id={titleId} className="text-[15px] font-semibold text-white">
             {editing ? "Edit Server" : "Add Server"}
           </h2>
@@ -109,148 +223,192 @@ export function AddServerModal({
           </button>
         </div>
 
-        <form onSubmit={(event) => void submit(event, false)} className="space-y-3.5 px-5 py-4">
-          {!editing ? (
-            <p className="text-[13px] leading-5 text-white/62">
-              Add an SSH host. ServerUI stores encrypted credentials and connects through the Go
-              backend — the browser never opens SSH directly.
-            </p>
-          ) : null}
-          <Field label="Server Name">
-            <input
-              ref={firstField}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="sui-server-input"
-              placeholder="Production"
-              autoComplete="off"
-            />
-          </Field>
-          <Field label="Host / IP">
-            <input
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              className="sui-server-input"
-              placeholder="203.0.113.10"
-              autoComplete="off"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </Field>
-          <Field label="SSH Port">
-            <input
-              value={port}
-              onChange={(event) => setPort(event.target.value)}
-              className="sui-server-input"
-              inputMode="numeric"
-              placeholder="22"
-            />
-          </Field>
-          <Field label="Username">
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              className="sui-server-input"
-              placeholder="deploy"
-              autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </Field>
-          <fieldset>
-            <legend className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.16em] text-white/48">
-              Authentication
-            </legend>
-            <div className="flex gap-2" role="group" aria-label="Authentication method">
-              <AuthChoice
-                selected={auth === "password"}
-                onSelect={() => setAuth("password")}
-                label="Password"
-              />
-              <AuthChoice
-                selected={auth === "private_key"}
-                onSelect={() => setAuth("private_key")}
-                label="SSH Private Key"
-              />
-            </div>
-          </fieldset>
-
-          {auth === "password" ? (
-            <Field label="Password">
+        <form
+          noValidate
+          onSubmit={(event) => void submit(event, false)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto px-5 py-4">
+            {!editing ? (
+              <p className="text-[13px] leading-5 text-white/62">
+                Add an SSH host. ServerUI stores encrypted credentials and connects through the Go
+                backend — the browser never opens SSH directly.
+              </p>
+            ) : null}
+            <Field label="Server Name" error={visibleErrors.name} errorId={ids("name").error}>
               <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                ref={firstField}
+                {...fieldProps("name")}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
                 className="sui-server-input"
-                placeholder={editing ? "Leave unchanged" : "••••••••••••"}
-                autoComplete="new-password"
-              />
-            </Field>
-          ) : (
-            <Field label="Private Key">
-              <textarea
-                value={privateKey}
-                onChange={(event) => setPrivateKey(event.target.value)}
-                className="sui-server-input min-h-[140px] resize-y font-mono text-[12px] leading-5"
-                placeholder={
-                  editing
-                    ? "Leave unchanged"
-                    : "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
-                }
-                spellCheck={false}
+                placeholder="Production"
                 autoComplete="off"
               />
-              <p className="mt-2 text-[12px] leading-5 text-white/52">
-                Your private key is encrypted before being stored. Passphrase-protected keys are not
-                supported yet.
-              </p>
             </Field>
-          )}
+            <Field label="Host / IP" error={visibleErrors.host} errorId={ids("host").error}>
+              <input
+                {...fieldProps("host")}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                className="sui-server-input"
+                placeholder="203.0.113.10"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="SSH Port" error={visibleErrors.port} errorId={ids("port").error}>
+              <input
+                {...fieldProps("port")}
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                className="sui-server-input"
+                inputMode="numeric"
+                placeholder="22"
+              />
+            </Field>
+            <Field label="Username" error={visibleErrors.username} errorId={ids("username").error}>
+              <input
+                {...fieldProps("username")}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                className="sui-server-input"
+                placeholder="deploy"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </Field>
+            <fieldset>
+              <legend className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.16em] text-white/48">
+                Authentication
+              </legend>
+              <div className="flex gap-2" role="group" aria-label="Authentication method">
+                <AuthChoice
+                  selected={auth === "password"}
+                  onSelect={() => setAuth("password")}
+                  label="Password"
+                />
+                <AuthChoice
+                  selected={auth === "private_key"}
+                  onSelect={() => setAuth("private_key")}
+                  label="SSH Private Key"
+                />
+              </div>
+            </fieldset>
 
-          {localError || error ? (
-            <p className="text-[12px] text-red-300" role="alert">
-              {localError || error}
-            </p>
-          ) : null}
+            {auth === "password" ? (
+              <Field label="Password" error={visibleErrors.secret} errorId={ids("secret").error}>
+                <input
+                  {...fieldProps("secret")}
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="sui-server-input"
+                  placeholder={editing ? "Leave unchanged" : "••••••••••••"}
+                  autoComplete="new-password"
+                />
+              </Field>
+            ) : (
+              <Field
+                label="Private Key"
+                error={visibleErrors.secret}
+                errorId={ids("secret").error}
+                hint="Your private key is encrypted before being stored. Passphrase-protected keys are not supported yet."
+              >
+                <textarea
+                  {...fieldProps("secret")}
+                  value={privateKey}
+                  onChange={(event) => setPrivateKey(event.target.value)}
+                  className="sui-server-input min-h-[140px] resize-y font-mono text-[12px] leading-5"
+                  placeholder={
+                    editing
+                      ? "Leave unchanged"
+                      : "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
+                  }
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </Field>
+            )}
+          </div>
 
-          <div className="flex flex-wrap justify-end gap-2 pt-2">
+          <div className="shrink-0 space-y-2.5 border-t border-white/8 px-5 py-3.5">
+            {attempt && errorCount ? (
+              <p className="text-[12px] text-red-300" role="alert">
+                {errorCount === 1
+                  ? "Fix the highlighted field to continue."
+                  : `Fix the ${errorCount} highlighted fields to continue.`}
+              </p>
+            ) : error ? (
+              <p className="text-[12px] text-red-300" role="alert">
+                {error}
+              </p>
+            ) : null}
+
+            {visibleTest ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className={`flex items-start gap-2 rounded-xl px-3 py-2 text-[12px] leading-5 ${testUi.line}`}
+              >
+                <testUi.Icon aria-hidden className={`mt-0.5 size-3.5 shrink-0${spin}`} />
+                <span>
+                  {visibleTest.status === "testing"
+                    ? `Connecting to ${address.trim()}…`
+                    : visibleTest.message}
+                </span>
+              </p>
+            ) : null}
+
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-full px-4 py-2 text-[13px] font-medium text-white/70 transition hover:bg-white/8 hover:text-white"
+              onClick={() => void runTest()}
+              disabled={busy || visibleTest?.status === "testing"}
+              data-result={visibleTest?.status}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-full border px-3.5 py-2 text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${testUi.button}`}
             >
-              Cancel
+              <testUi.Icon aria-hidden className={`size-3.5${spin}`} />
+              {visibleTest?.status === "testing" ? "Testing…" : "Test Connection"}
             </button>
-            {connectAfterSave && !editing ? (
+            <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"
-                disabled={busy}
-                onClick={(event) => void submit(event, true)}
-                className="rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-white/50"
+                onClick={onClose}
+                className="rounded-full px-4 py-2 text-[13px] font-medium text-white/70 transition hover:bg-white/8 hover:text-white"
               >
-                {busy ? "Saving…" : "Save & Connect"}
+                Cancel
               </button>
-            ) : null}
-            <button
-              type="submit"
-              disabled={busy}
-              className={`rounded-full px-4 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed ${
-                connectAfterSave && !editing
-                  ? "bg-white/12 text-white hover:bg-white/18 disabled:bg-white/8 disabled:text-white/40"
-                  : "bg-white text-zinc-900 hover:bg-white/90 disabled:bg-white/25 disabled:text-white/50"
-              }`}
-            >
-              {busy ? "Saving…" : editing ? "Save Server" : "Save Server"}
-            </button>
-          </div>
-          {!editing ? (
+              {connectAfterSave && !editing ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={(event) => void submit(event, true)}
+                  className="rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-white/50"
+                >
+                  {busy ? "Saving…" : "Save & Connect"}
+                </button>
+              ) : null}
+              <button
+                type="submit"
+                disabled={busy}
+                className={`rounded-full px-4 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed ${
+                  connectAfterSave && !editing
+                    ? "bg-white/12 text-white hover:bg-white/18 disabled:bg-white/8 disabled:text-white/40"
+                    : "bg-white text-zinc-900 hover:bg-white/90 disabled:bg-white/25 disabled:text-white/50"
+                }`}
+              >
+                {busy ? "Saving…" : "Save Server"}
+              </button>
+            </div>
             <p className="text-[11px] leading-5 text-white/45">
-              After saving, use Test Connection on the server card to verify SSH without opening the
-              desktop.
+              Test Connection checks these details without saving them.
+              {editing ? " A blank password or key uses the saved one." : null}
             </p>
-          ) : null}
+          </div>
         </form>
       </div>
     </div>
@@ -282,13 +440,37 @@ function AuthChoice({
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  error,
+  errorId,
+  hint,
+  children,
+}: {
+  label: string;
+  error?: string;
+  errorId: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.16em] text-white/48">
-        {label}
-      </span>
-      {children}
-    </label>
+    <div>
+      <label className="block">
+        <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.16em] text-white/48">
+          {label}
+        </span>
+        {children}
+      </label>
+      {error ? (
+        <p
+          id={errorId}
+          className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-5 text-red-300"
+        >
+          <XCircle aria-hidden className="mt-[3px] size-3.5 shrink-0" />
+          {error}
+        </p>
+      ) : null}
+      {hint ? <p className="mt-2 text-[12px] leading-5 text-white/52">{hint}</p> : null}
+    </div>
   );
 }
