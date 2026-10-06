@@ -10,20 +10,11 @@ import {
   FileVideo,
   Folder,
 } from "lucide-react";
-import { useState } from "react";
-import type { DragEvent as ReactDragEvent, MouseEvent } from "react";
+import type { MouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { getFileType } from "@/src/lib/files/file-type";
 import { formatModified, formatSize } from "@/src/lib/files/format";
 import { parentPath, type FileEntry } from "@/src/lib/api/files";
-
-const DRAG_MIME = "application/x-serverui-file";
-
-function readDragPath(event: ReactDragEvent): string | null {
-  const direct = event.dataTransfer.getData(DRAG_MIME);
-  if (direct) return direct;
-  const plain = event.dataTransfer.getData("text/plain");
-  return plain || null;
-}
+import { FILE_DROP_ATTR, useFileMoveDrag } from "@/src/components/apps/files/use-file-move-drag";
 
 export function FileList({
   path,
@@ -42,60 +33,40 @@ export function FileList({
   onOpen: (entry: FileEntry) => void;
   onParent: () => void;
   onContextMenu: (event: MouseEvent, entry: FileEntry | null) => void;
-  onMove: (sourcePath: string, destDir: string) => void;
+  onMove: (sourcePath: string, destDir: string, sourceType: "file" | "dir") => void;
 }) {
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const parentDest = parentPath(path);
-
-  function overDest(event: ReactDragEvent, dest: string) {
-    if (event.dataTransfer.types.length === 0) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    if (dropTarget !== dest) setDropTarget(dest);
-  }
-
-  function dropOnto(event: ReactDragEvent, dest: string) {
-    event.preventDefault();
-    setDropTarget(null);
-    const source = readDragPath(event);
-    if (source) onMove(source, dest);
-  }
+  const { ghost, startPress, consumeClick } = useFileMoveDrag(onMove, path);
 
   return (
     <div
-      className="min-h-0 flex-1 overflow-y-auto"
+      className="relative min-h-0 flex-1 overflow-y-auto"
       onContextMenu={(event) => {
         if (event.target === event.currentTarget) {
           onContextMenu(event, null);
         }
       }}
     >
-      <table className="w-full text-left text-[13px]">
+      <table className="w-full table-fixed text-left text-[13px]">
         <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
           <tr className="border-b sui-hairline">
             <th className="px-4 py-2 font-medium">Name</th>
-            <th className="px-4 py-2 font-medium">Size</th>
-            <th className="px-4 py-2 font-medium">Modified</th>
+            <th className="w-[22%] px-4 py-2 font-medium">Size</th>
+            <th className="w-[28%] px-4 py-2 font-medium">Modified</th>
           </tr>
         </thead>
         <tbody>
           {path !== "/" ? (
             <tr
-              className={`cursor-default border-b sui-hairline sui-hover ${dropTarget === parentDest ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
+              {...{ [FILE_DROP_ATTR]: parentDest }}
+              className={`cursor-default select-none border-b sui-hairline sui-hover ${ghost?.dest === parentDest ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
               onDoubleClick={onParent}
-              onDragOver={(event) => overDest(event, parentDest)}
-              onDragLeave={() => setDropTarget(null)}
-              onDrop={(event) => dropOnto(event, parentDest)}
             >
               <td className="px-4 py-1.5" colSpan={3}>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  onClick={onParent}
-                >
+                <span className="flex items-center gap-2">
                   <Folder aria-hidden className="size-4 fill-sky-400 text-sky-500" />
                   ..
-                </button>
+                </span>
               </td>
             </tr>
           ) : null}
@@ -104,24 +75,24 @@ export function FileList({
               key={entry.path}
               entry={entry}
               selected={selected === entry.path}
-              dropActive={dropTarget === entry.path}
+              dropActive={ghost?.dest === entry.path}
               onSelect={() => onSelect(entry.path)}
               onOpen={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(event, entry)}
-              onDragStart={(event) => {
-                onSelect(entry.path);
-                event.dataTransfer.setData(DRAG_MIME, entry.path);
-                event.dataTransfer.setData("text/plain", entry.path);
-                event.dataTransfer.effectAllowed = "move";
-              }}
-              onDragOver={entry.type === "dir" ? (event) => overDest(event, entry.path) : undefined}
-              onDragLeave={entry.type === "dir" ? () => setDropTarget(null) : undefined}
-              onDrop={entry.type === "dir" ? (event) => dropOnto(event, entry.path) : undefined}
-              onDragEnd={() => setDropTarget(null)}
+              onPointerDown={(event) => startPress(event, entry.path, entry.name, entry.type)}
+              consumeClick={consumeClick}
             />
           ))}
         </tbody>
       </table>
+      {ghost ? (
+        <div
+          className="pointer-events-none fixed z-[90] max-w-[220px] truncate rounded-md bg-black/80 px-2 py-1 text-[12px] text-white shadow-lg"
+          style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+        >
+          {ghost.name}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -133,11 +104,8 @@ function FileItem({
   onSelect,
   onOpen,
   onContextMenu,
-  onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDragEnd,
+  onPointerDown,
+  consumeClick,
 }: {
   entry: FileEntry;
   selected: boolean;
@@ -145,38 +113,31 @@ function FileItem({
   onSelect: () => void;
   onOpen: () => void;
   onContextMenu: (event: MouseEvent) => void;
-  onDragStart: (event: ReactDragEvent) => void;
-  onDragOver?: (event: ReactDragEvent) => void;
-  onDragLeave?: () => void;
-  onDrop?: (event: ReactDragEvent) => void;
-  onDragEnd: () => void;
+  onPointerDown: (event: ReactPointerEvent) => void;
+  consumeClick: () => boolean;
 }) {
   return (
     <tr
-      draggable
-      className={`cursor-default border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-100 outline outline-2 outline-sky-400" : ""}`}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      {...(entry.type === "dir" ? { [FILE_DROP_ATTR]: entry.path } : {})}
+      className={`cursor-default select-none border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
+      style={{ touchAction: "none" }}
+      onPointerDown={onPointerDown}
+      onDragStart={(event) => event.preventDefault()}
+      onClick={() => {
+        if (consumeClick()) return;
+        onSelect();
+      }}
+      onDoubleClick={() => {
+        if (consumeClick()) return;
+        onOpen();
+      }}
       onContextMenu={onContextMenu}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
     >
       <td className="px-4 py-1.5">
-        <button
-          type="button"
-          className="flex max-w-full items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-          onClick={onSelect}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            onOpen();
-          }}
-        >
+        <span className="flex max-w-full items-center gap-2">
           <EntryIcon entry={entry} />
           <span className="truncate">{entry.name}</span>
-        </button>
+        </span>
       </td>
       <td className="px-4 py-1.5 whitespace-nowrap sui-muted">
         {entry.type === "dir" ? "—" : formatSize(entry.size)}

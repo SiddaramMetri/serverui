@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
+import { FILE_DROP_ATTR } from "@/src/components/apps/files/use-file-move-drag";
 
 export function Breadcrumbs({
   path,
@@ -8,8 +9,10 @@ export function Breadcrumbs({
 }: {
   path: string;
   onNavigate: (next: string) => void;
+  onMove?: (sourcePath: string, destDir: string) => void;
 }) {
   const parts = path === "/" ? [] : path.split("/").filter(Boolean);
+
   return (
     <nav
       aria-label="Location"
@@ -17,6 +20,7 @@ export function Breadcrumbs({
     >
       <button
         type="button"
+        {...{ [FILE_DROP_ATTR]: "/" }}
         className="shrink-0 rounded px-1.5 py-0.5 sui-muted outline-none sui-hover hover:text-[var(--app-title)]"
         onClick={() => onNavigate("/")}
       >
@@ -29,6 +33,7 @@ export function Breadcrumbs({
             <ChevronRight aria-hidden className="size-3 shrink-0 text-neutral-400" />
             <button
               type="button"
+              {...{ [FILE_DROP_ATTR]: target }}
               className="truncate rounded px-1.5 py-0.5 sui-muted outline-none sui-hover hover:text-[var(--app-title)]"
               onClick={() => onNavigate(target)}
             >

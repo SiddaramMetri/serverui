@@ -216,13 +216,11 @@ export function FilesApp() {
     }
   }
 
-  async function handleMove(sourcePath: string, destDir: string) {
+  async function handleMove(sourcePath: string, destDir: string, sourceType?: "file" | "dir") {
     const source = entries.find((entry) => entry.path === sourcePath);
-    if (!source) {
-      setError("unable to move: item not found");
-      return;
-    }
-    if (!isValidMove(sourcePath, source.type, destDir)) {
+    const type = source?.type ?? sourceType ?? "file";
+    const name = source?.name ?? baseName(sourcePath);
+    if (!isValidMove(sourcePath, type, destDir)) {
       setError("cannot move an item into itself or its current location");
       return;
     }
@@ -231,12 +229,12 @@ export function FilesApp() {
     try {
       setError(null);
       const destEntries = destDir === path ? entries : (await listFiles(serverId, destDir)).entries;
-      if (destEntries.some((entry) => entry.name === source.name && entry.path !== sourcePath)) {
+      if (destEntries.some((entry) => entry.name === name && entry.path !== sourcePath)) {
         setPendingMove({
           from: sourcePath,
           to,
           destDir,
-          name: source.name,
+          name,
           destNames: destEntries.map((entry) => entry.name),
         });
         return;
@@ -367,7 +365,11 @@ export function FilesApp() {
           >
             <Home aria-hidden className="size-4" />
           </button>
-          <Breadcrumbs path={path} onNavigate={goTo} />
+          <Breadcrumbs
+            path={path}
+            onNavigate={goTo}
+            onMove={(source, dest) => void handleMove(source, dest)}
+          />
           <label className="relative shrink-0">
             <Search
               aria-hidden
@@ -512,15 +514,7 @@ export function FilesApp() {
             </button>
           </div>
         ) : null}
-        {loading ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-neutral-400">
-            Loading files…
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-neutral-400">
-            This folder is empty
-          </div>
-        ) : (
+        <div className="relative min-h-0 flex-1">
           <FileList
             path={path}
             entries={visible}
@@ -529,9 +523,14 @@ export function FilesApp() {
             onOpen={openEntry}
             onParent={() => path !== "/" && goTo(parentPath(path))}
             onContextMenu={openContextMenu}
-            onMove={(source, dest) => void handleMove(source, dest)}
+            onMove={(source, dest, type) => void handleMove(source, dest, type)}
           />
-        )}
+          {loading ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--app-bg)]/60 text-sm text-neutral-400">
+              Loading files…
+            </div>
+          ) : null}
+        </div>
         <div className="flex shrink-0 items-center justify-between border-t sui-hairline px-4 py-1.5 text-[11px] sui-muted">
           <span>
             {visible.length} {visible.length === 1 ? "item" : "items"}
