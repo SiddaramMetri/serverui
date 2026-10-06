@@ -6,7 +6,8 @@ import { BrandMark } from "@/src/components/brand/BrandMark";
 import { AddServerModal } from "@/src/components/server-selection/AddServerModal";
 import { ServerCard } from "@/src/components/server-selection/ServerCard";
 import type { NewServerInput, Server } from "@/src/lib/servers";
-import { formatConnectionTestMessage, friendlyError } from "@/src/lib/errors";
+import { ApiError } from "@/src/lib/api/client";
+import { formatConnectionTestMessage, formatFriendly, friendlyError } from "@/src/lib/errors";
 import { formatApiError, useSession } from "@/src/lib/session";
 import { WallpaperBackdrop } from "@/src/lib/wallpaper";
 
@@ -52,8 +53,7 @@ export function ServerSelection() {
         selectServer(created);
       }
     } catch (err) {
-      const mapped = friendlyError(err, "Unable to add server.");
-      setFormError(`${mapped.title}. ${mapped.detail}`);
+      setFormError(formatFriendly(friendlyError(err, "Unable to add server.")));
     } finally {
       setFormBusy(false);
     }
@@ -67,8 +67,11 @@ export function ServerSelection() {
       await updateServer(editing.id, input);
       setEditing(null);
     } catch (err) {
-      const mapped = friendlyError(err, "Unable to update server.");
-      setFormError(`${mapped.title}. ${mapped.detail}`);
+      setFormError(
+        err instanceof ApiError && err.status === 404
+          ? "This server no longer exists. Close this form and refresh the list."
+          : formatFriendly(friendlyError(err, "Unable to update server.")),
+      );
     } finally {
       setFormBusy(false);
     }

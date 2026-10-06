@@ -50,14 +50,14 @@ func (s *SQLStore) q(query string) string {
 
 var placeholderRE = regexp.MustCompile(`\$(\d+)`)
 
-// rebindSQLite converts Postgres-style $1 placeholders to SQLite ?.
+// rebindSQLite converts $N to ?N; a bare ? would bind out-of-order arguments wrongly.
 func rebindSQLite(query string) string {
 	return placeholderRE.ReplaceAllStringFunc(query, func(m string) string {
 		n, err := strconv.Atoi(strings.TrimPrefix(m, "$"))
 		if err != nil || n < 1 {
 			return m
 		}
-		return "?"
+		return "?" + strconv.Itoa(n)
 	})
 }
 

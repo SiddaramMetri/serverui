@@ -85,6 +85,11 @@ export function friendlyError(err: unknown, fallback = "Something went wrong.") 
   };
 }
 
+/** Joins a friendlyError result into one sentence-cased line. */
+export function formatFriendly(mapped: { title: string; detail: string }) {
+  return `${mapped.title.replace(/\.$/, "")}. ${mapped.detail}`;
+}
+
 export function formatConnectionTestMessage(
   ok: boolean,
   latencyMs?: number,
@@ -97,6 +102,5 @@ export function formatConnectionTestMessage(
         : "";
     return `Connection successful${latency}`;
   }
-  const mapped = friendlyError(error || "Connection failed", "Connection failed");
-  return `${mapped.title}. ${mapped.detail}`;
+  return formatFriendly(friendlyError(error || "Connection failed", "Connection failed"));
 }

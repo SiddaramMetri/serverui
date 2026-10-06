@@ -36,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/servers/{id}", s.getServer)
 	mux.HandleFunc("PUT /api/servers/{id}", s.updateServer)
 	mux.HandleFunc("DELETE /api/servers/{id}", s.deleteServer)
+	mux.HandleFunc("POST /api/servers/test-connection", s.testServerDraft)
 	mux.HandleFunc("POST /api/servers/{id}/test-connection", s.testServer)
 	mux.HandleFunc("POST /api/servers/{id}/connect", s.connectServer)
 	mux.HandleFunc("POST /api/servers/{id}/disconnect", s.disconnectServer)
@@ -177,6 +178,24 @@ func (s *Server) deleteServer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) testServer(w http.ResponseWriter, r *http.Request) {
 	result, err := s.servers.Test(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// testServerDraft checks unsaved connection details; serverId is set when editing.
+func (s *Server) testServerDraft(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		serverBody
+		ServerID string `json:"serverId"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	result, err := s.servers.TestDraft(r.Context(), strings.TrimSpace(body.ServerID), body.input())
 	if err != nil {
 		writeError(w, err)
 		return

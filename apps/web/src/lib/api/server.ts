@@ -244,6 +244,25 @@ export function testServerConnection(id: string) {
   });
 }
 
+export type DraftTestResult = Omit<ConnectionTestResult, "server"> & {
+  /** Stable failure code from the backend, e.g. "auth_failed" or "timeout". */
+  code?: string;
+};
+
+/** Tests unsaved form details; pass serverId when editing to reuse the saved secret. */
+export function testServerDraft(
+  input: Omit<ServerWriteInput, "name">,
+  serverId?: string,
+  init?: RequestInit,
+) {
+  return apiRequest<DraftTestResult>("/api/servers/test-connection", {
+    ...init,
+    method: "POST",
+    body: JSON.stringify({ ...input, serverId }),
+    timeoutMs: 25000,
+  });
+}
+
 export function connectServer(id: string) {
   return apiRequest<ServerInfo>(`/api/servers/${id}/connect`, {
     method: "POST",

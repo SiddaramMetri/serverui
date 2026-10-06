@@ -134,3 +134,42 @@ func TestFilesRequireServerID(t *testing.T) {
 		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestTestConnectionDraftDoesNotSave(t *testing.T) {
+	handler := testAPI(t)
+	body := `{"host":"203.0.113.10","port":22,"username":"deploy","authType":"password","password":"super-secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/test-connection", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || !result.OK {
+		t.Fatalf("result %s (%v)", rec.Body.String(), err)
+	}
+	if strings.Contains(rec.Body.String(), "super-secret") {
+		t.Fatal("response leaked the password")
+	}
+
+	list := httptest.NewRecorder()
+	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/servers", nil))
+	if !strings.Contains(list.Body.String(), `"servers":[]`) {
+		t.Fatalf("draft test saved a server: %s", list.Body.String())
+	}
+}
+
+func TestTestConnectionDraftRejectsInvalidHost(t *testing.T) {
+	handler := testAPI(t)
+	body := `{"host":"not a host","port":22,"username":"deploy","authType":"password","password":"x"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/test-connection", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}

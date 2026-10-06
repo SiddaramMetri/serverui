@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"serverui/server/internal/crypto"
@@ -280,24 +279,29 @@ func (s *Service) loadAuth(id string) (sshx.Config, sshx.AuthMethod, error) {
 	if err != nil {
 		return sshx.Config{}, nil, err
 	}
-	cred, err := s.store.GetCredential(ctx, id)
+	auth, err := s.savedAuth(ctx, rec)
 	if err != nil {
-		return sshx.Config{}, nil, fmt.Errorf("unable to authenticate")
-	}
-	secret, err := s.box.Decrypt(cred.EncryptedSecret)
-	if err != nil {
-		return sshx.Config{}, nil, fmt.Errorf("unable to authenticate")
+		return sshx.Config{}, nil, err
 	}
 	cfg := sshx.Config{
 		Host:     rec.Host,
 		Port:     rec.Port,
 		Username: rec.Username,
 	}
-	auth, err := authMethod(rec.AuthType, secret)
-	if err != nil {
-		return sshx.Config{}, nil, err
-	}
 	return cfg, auth, nil
+}
+
+// savedAuth loads and decrypts the stored credential for rec.
+func (s *Service) savedAuth(ctx context.Context, rec Record) (sshx.AuthMethod, error) {
+	cred, err := s.store.GetCredential(ctx, rec.ID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to authenticate")
+	}
+	secret, err := s.box.Decrypt(cred.EncryptedSecret)
+	if err != nil {
+		return nil, fmt.Errorf("unable to authenticate")
+	}
+	return authMethod(rec.AuthType, secret)
 }
 
 func (s *Service) secret(input Input, required bool) (string, error) {
@@ -375,13 +379,8 @@ func statusFromErr(err error) string {
 	if err == nil {
 		return StatusOnline
 	}
-	msg := strings.ToLower(err.Error())
-	pub := strings.ToLower(sshx.PublicError(err))
-	if strings.Contains(pub, "authentication") || strings.Contains(msg, "unable to authenticate") || strings.Contains(msg, "permission denied") {
+	if code, _ := sshx.ClassifyError(err); code == sshx.CodeAuthFailed {
 		return StatusAuthenticationFailed
-	}
-	if strings.Contains(pub, "unable to connect") || strings.Contains(msg, "timeout") || strings.Contains(msg, "refused") {
-		return StatusOffline
 	}
 	return StatusOffline
 }

@@ -2,7 +2,6 @@ package sshx
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -178,31 +177,5 @@ func (m *Manager) invalidate(client *ssh.Client) {
 	m.client = nil
 	if m.status == StatusOnline {
 		m.status = StatusOffline
-	}
-}
-
-func PublicError(err error) string {
-	if err == nil {
-		return ""
-	}
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "passphrase"):
-		return "passphrase-protected private keys are not supported yet"
-	case strings.Contains(msg, "invalid private key"):
-		return "invalid private key"
-	case strings.Contains(msg, "unable to authenticate"),
-		strings.Contains(msg, "authenticate"),
-		strings.Contains(msg, "no supported methods remain"),
-		strings.Contains(msg, "permission denied"):
-		return "authentication failed"
-	case strings.Contains(msg, "i/o timeout"),
-		strings.Contains(msg, "timeout"),
-		strings.Contains(msg, "connection refused"),
-		strings.Contains(msg, "no route"),
-		strings.Contains(msg, "network is unreachable"):
-		return "unable to connect to server"
-	default:
-		return "ssh connection failed"
 	}
 }
