@@ -218,7 +218,6 @@ export function FileList({
                 data-parent="true"
                 {...{ [FILE_DROP_ATTR]: parentDest }}
                 className={`cursor-default select-none border-b sui-hairline sui-hover ${ghost?.dest === parentDest ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
-                onClick={onParent}
                 onDoubleClick={onParent}
               >
                 <td className="px-4 py-1.5" colSpan={3}>

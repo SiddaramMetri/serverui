@@ -510,8 +510,22 @@ export function FilesApp() {
         return;
       }
       setNotice(null);
+      const message = errorMessage(err, "operation failed");
+      // zip and 7z are often missing on minimal servers; tar.gz always works, so offer it in one click.
+      if (message.includes("is not installed") && format !== "tar.gz") {
+        setCompress({
+          ...compress,
+          name: withArchiveExt(name, "tar.gz"),
+          format: "tar.gz",
+          busy: false,
+        });
+        setError(
+          `Compression failed: ${message}. Switched to TAR.GZ, which works on any Linux server: press Compress again.`,
+        );
+        return;
+      }
       setCompress({ ...compress, name, busy: false });
-      setError(`Compression failed: ${errorMessage(err, "operation failed")}`);
+      setError(`Compression failed: ${message}`);
     }
   }
 

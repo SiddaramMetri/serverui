@@ -310,4 +310,33 @@ describe("FilesApp multi-select", () => {
     );
     expect(await screen.findByText("Created “gamma_folder.zip”.")).toBeInTheDocument();
   });
+
+  it("switches to tar.gz when zip is missing on the server", async () => {
+    const user = userEvent.setup();
+    compressItemsMock
+      .mockRejectedValueOnce(new ApiError("zip is not installed on the server", 400))
+      .mockResolvedValueOnce({ status: "ok", path: "/gamma_folder.tar.gz" });
+    renderApp();
+    expect(await screen.findByText("gamma_folder")).toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByText("gamma_folder"));
+    await user.click(screen.getByRole("menuitem", { name: "Compress" }));
+    await user.click(screen.getByRole("button", { name: "Compress" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Switched to TAR.GZ/);
+    expect(screen.getByLabelText("Format")).toHaveValue("tar.gz");
+    expect(screen.getByLabelText("Archive name")).toHaveValue("gamma_folder.tar.gz");
+
+    await user.click(screen.getByRole("button", { name: "Compress" }));
+    await waitFor(() =>
+      expect(compressItemsMock).toHaveBeenLastCalledWith(
+        "srv-1",
+        "/",
+        ["gamma_folder"],
+        "gamma_folder.tar.gz",
+        "tar.gz",
+        false,
+      ),
+    );
+  });
 });

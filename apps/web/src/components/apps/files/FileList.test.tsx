@@ -293,3 +293,26 @@ describe("FileList", () => {
     expect(screen.queryByTestId("selection-marquee")).not.toBeInTheDocument();
   });
 });
+
+describe("FileList parent row", () => {
+  it("goes up on double click only, like opening a folder", () => {
+    const onParent = vi.fn();
+    render(
+      <FileList
+        path="/home"
+        entries={entries}
+        selected={null}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onParent={onParent}
+        onContextMenu={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+    const parentRow = screen.getByText("..").closest("tr")!;
+    fireEvent.click(parentRow);
+    expect(onParent).not.toHaveBeenCalled();
+    fireEvent.doubleClick(parentRow);
+    expect(onParent).toHaveBeenCalledTimes(1);
+  });
+});
