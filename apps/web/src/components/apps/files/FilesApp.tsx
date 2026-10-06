@@ -19,7 +19,8 @@ import {
   uploadFile,
   type FileEntry,
 } from "@/src/lib/api/files";
-import { useWindowManager } from "@/src/components/window/window-context";
+import { useWindowManager, type WindowPayload } from "@/src/components/window/window-context";
+import { addDesktopShortcut } from "@/src/lib/desktop-shortcuts";
 import { useServer } from "@/src/lib/api/server-context";
 import { useSelectedServer } from "@/src/lib/session";
 import { formatSize, totalSize } from "@/src/lib/files/format";
@@ -47,7 +48,7 @@ type PendingMove = {
   destNames: string[];
 };
 
-export function FilesApp() {
+export function FilesApp({ payload }: { payload?: WindowPayload }) {
   const { openWindow } = useWindowManager();
   const { server } = useServer();
   const selectedServer = useSelectedServer();
@@ -104,15 +105,19 @@ export function FilesApp() {
   useEffect(() => {
     if (!serverId) return;
     let cancelled = false;
-    listFiles(serverId, "/")
+    const start = payload?.cwd || "/";
+    listFiles(serverId, start)
       .then((result) => {
         if (cancelled) return;
         const sorted = [...result.entries].sort((a, b) => {
           if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
+        const resolved = result.path || start;
         setEntries(sorted);
-        setPath(result.path || "/");
+        setPath(resolved);
+        setHistory([resolved]);
+        setHistoryIndex(0);
         setError(null);
       })
       .catch((err) => {
@@ -126,7 +131,8 @@ export function FilesApp() {
     return () => {
       cancelled = true;
     };
-  }, [serverId]);
+    // payload identity changes on each openWindow("files", ...), so a shortcut re-navigates an open window.
+  }, [serverId, payload]);
 
   function goTo(next: string) {
     const normalized = next.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
@@ -842,6 +848,7 @@ export function FilesApp() {
           }}
           onInfo={() => openInfo(menu.entry)}
           onTerminalHere={() => openTerminalHere(menu.entry)}
+          onAddToDesktop={() => addDesktopShortcut(serverId, menu.entry?.path || path)}
           onClearSelection={clearSelection}
           onClose={() => setMenu(null)}
         />

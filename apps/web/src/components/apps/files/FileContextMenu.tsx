@@ -13,6 +13,7 @@ type FileContextMenuProps = {
   onCopyPath: () => void;
   onInfo: () => void;
   onTerminalHere: () => void;
+  onAddToDesktop?: () => void;
   onClearSelection?: () => void;
   onClose: () => void;
 };
@@ -28,6 +29,7 @@ export function FileContextMenu({
   onCopyPath,
   onInfo,
   onTerminalHere,
+  onAddToDesktop,
   onClearSelection,
   onClose,
 }: FileContextMenuProps) {
@@ -85,13 +87,24 @@ export function FileContextMenu({
             }}
           />
           {isDir ? (
-            <MenuItem
-              label="Open Terminal Here"
-              onSelect={() => {
-                onTerminalHere();
-                onClose();
-              }}
-            />
+            <>
+              <MenuItem
+                label="Open Terminal Here"
+                onSelect={() => {
+                  onTerminalHere();
+                  onClose();
+                }}
+              />
+              {onAddToDesktop ? (
+                <MenuItem
+                  label="Add to Desktop"
+                  onSelect={() => {
+                    onAddToDesktop();
+                    onClose();
+                  }}
+                />
+              ) : null}
+            </>
           ) : (
             <MenuItem
               label="Download"
