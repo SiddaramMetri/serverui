@@ -766,7 +766,7 @@ export function FilesApp() {
             </button>
           </div>
         ) : null}
-        <div className="relative min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <FileList
             path={path}
             entries={visible}

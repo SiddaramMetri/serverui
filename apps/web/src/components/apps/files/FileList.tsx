@@ -109,8 +109,8 @@ export function FileList({
         const boxViewportBottom = Math.max(initialClientY, moveEvent.clientY);
 
         setMarquee({
-          left: boxViewportLeft - containerRect.left + container.scrollLeft,
-          top: boxViewportTop - containerRect.top + container.scrollTop,
+          left: boxViewportLeft - containerRect.left,
+          top: boxViewportTop - containerRect.top,
           width: boxViewportRight - boxViewportLeft,
           height: boxViewportBottom - boxViewportTop,
         });
@@ -185,12 +185,10 @@ export function FileList({
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1 overflow-y-auto select-none"
+      className="relative flex min-h-0 flex-1 flex-col select-none"
       onMouseDown={handleMouseDown}
       onContextMenu={(event) => {
-        if (event.target === event.currentTarget) {
-          onContextMenu(event, null);
-        }
+        onContextMenu(event, null);
       }}
     >
       {marquee ? (
@@ -205,48 +203,51 @@ export function FileList({
           }}
         />
       ) : null}
-      <table className="w-full table-fixed text-left text-[13px]">
-        <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
-          <tr className="border-b sui-hairline">
-            <th className="px-4 py-2 font-medium">Name</th>
-            <th className="w-[22%] px-4 py-2 font-medium">Size</th>
-            <th className="w-[28%] px-4 py-2 font-medium">Modified</th>
-          </tr>
-        </thead>
-        <tbody>
-          {path !== "/" ? (
-            <tr
-              data-parent="true"
-              {...{ [FILE_DROP_ATTR]: parentDest }}
-              className={`cursor-default select-none border-b sui-hairline sui-hover ${ghost?.dest === parentDest ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
-              onClick={onParent}
-              onDoubleClick={onParent}
-            >
-              <td className="px-4 py-1.5" colSpan={3}>
-                <span className="flex items-center gap-2">
-                  <Folder aria-hidden className="size-4 fill-sky-400 text-sky-500" />
-                  ..
-                </span>
-              </td>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <table className="w-full table-fixed text-left text-[13px]">
+          <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
+            <tr className="border-b sui-hairline">
+              <th className="px-4 py-2 font-medium">Name</th>
+              <th className="w-[22%] px-4 py-2 font-medium">Size</th>
+              <th className="w-[28%] px-4 py-2 font-medium">Modified</th>
             </tr>
-          ) : null}
-          {entries.map((entry) => (
-            <FileItem
-              key={entry.path}
-              entry={entry}
-              selected={activeSelected.has(entry.path)}
-              dropActive={ghost?.dest === entry.path}
-              onOpen={() => onOpen(entry)}
-              onContextMenu={(event) => onContextMenu(event, entry)}
-              onPointerDown={(event) => {
-                if (event.ctrlKey || event.metaKey || event.shiftKey) return;
-                startPress(event, entry.path, entry.name, entry.type);
-              }}
-              consumeClick={consumeClick}
-            />
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {path !== "/" ? (
+              <tr
+                data-parent="true"
+                {...{ [FILE_DROP_ATTR]: parentDest }}
+                className={`cursor-default select-none border-b sui-hairline sui-hover ${ghost?.dest === parentDest ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
+                onClick={onParent}
+                onDoubleClick={onParent}
+              >
+                <td className="px-4 py-1.5" colSpan={3}>
+                  <span className="flex items-center gap-2">
+                    <Folder aria-hidden className="size-4 fill-sky-400 text-sky-500" />
+                    ..
+                  </span>
+                </td>
+              </tr>
+            ) : null}
+            {entries.map((entry) => (
+              <FileItem
+                key={entry.path}
+                entry={entry}
+                selected={activeSelected.has(entry.path)}
+                dropActive={ghost?.dest === entry.path}
+                onOpen={() => onOpen(entry)}
+                onContextMenu={(event) => onContextMenu(event, entry)}
+                onPointerDown={(event) => {
+                  if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+                  startPress(event, entry.path, entry.name, entry.type);
+                }}
+                consumeClick={consumeClick}
+              />
+            ))}
+          </tbody>
+        </table>
+        <div aria-hidden className="h-24 shrink-0" />
+      </div>
       {ghost ? (
         <div
           className="pointer-events-none fixed z-[90] max-w-[220px] truncate rounded-md bg-black/80 px-2 py-1 text-[12px] text-white shadow-lg"
@@ -281,7 +282,6 @@ function FileItem({
       data-path={entry.path}
       {...(entry.type === "dir" ? { [FILE_DROP_ATTR]: entry.path } : {})}
       className={`cursor-default select-none border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
-      style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
       onDragStart={(event) => event.preventDefault()}
       onDoubleClick={() => {
