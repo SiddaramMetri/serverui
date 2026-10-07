@@ -49,6 +49,14 @@ Date: _______________
 - [ ] Rename
 - [ ] Delete shows confirmation naming the file/folder
 - [ ] Permission / list errors show inline alert
+- [ ] Right-click a `.zip` / `.tar.gz` / `.7z`: **Extract Here** and **Extract To…** appear (not on other files)
+- [ ] Extract Here with one top-level folder extracts it next to the archive
+- [ ] Extract Here with several top-level items extracts into a folder named after the archive
+- [ ] Extract To… creates the destination folder when missing
+- [ ] Progress shows while extracting; Cancel leaves nothing behind (no `.serverui-extract.*` folder)
+- [ ] Existing item with the same name prompts Cancel / Keep both / Replace; Keep both creates `name (1)`
+- [ ] Corrupted archive, read-only folder, and missing `unzip` / `7z` show a clear error
+- [ ] Archive with `../` or absolute paths is refused and writes nothing
 
 ## Metrics (Dashboard)
 
