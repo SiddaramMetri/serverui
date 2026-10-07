@@ -57,6 +57,10 @@ Date: _______________
 - [ ] Existing item with the same name prompts Cancel / Keep both / Replace; Keep both creates `name (1)`
 - [ ] Corrupted archive, read-only folder, and missing `unzip` / `7z` show a clear error
 - [ ] Archive with `../` or absolute paths is refused and writes nothing
+- [ ] Icon / list view switch works and is remembered after reopening Files
+- [ ] Sidebar **Home** opens the SSH user's real home (e.g. `/root` for root)
+- [ ] Right-click menu and the toolbar ⋯ menu open at the cursor / button, fully on screen
+- [ ] Toolbar buttons show tooltips on hover; the window drags from the toolbar
 
 ## Metrics (Dashboard)
 
