@@ -520,6 +520,13 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := r.URL.Query().Get("path")
+	if path == "~" {
+		// "~" lists the user's real home, which is not always /home/<user>.
+		if path, err = s.files.Home(id); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	entries, err := s.files.List(id, path)
 	if err != nil {
 		writeError(w, err)
