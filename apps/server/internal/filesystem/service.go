@@ -14,6 +14,11 @@ import (
 
 const maxReadBytes = 512 << 10
 
+var (
+	ErrNotFound   = errors.New("file not found")
+	ErrPermission = errors.New("permission denied")
+)
+
 type Preview struct {
 	Path      string `json:"path"`
 	Content   string `json:"content"`
@@ -296,17 +301,17 @@ func mapFSError(err error) error {
 		return nil
 	}
 	if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
-		return fmt.Errorf("file not found")
+		return ErrNotFound
 	}
 	if os.IsPermission(err) {
-		return fmt.Errorf("permission denied")
+		return ErrPermission
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "not exist"), strings.Contains(msg, "no such file"):
-		return fmt.Errorf("file not found")
+		return ErrNotFound
 	case strings.Contains(msg, "permission denied"):
-		return fmt.Errorf("permission denied")
+		return ErrPermission
 	default:
 		return fmt.Errorf("filesystem operation failed")
 	}
