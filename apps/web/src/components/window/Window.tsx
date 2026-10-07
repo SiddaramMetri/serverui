@@ -4,6 +4,10 @@ import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "
 import { APP_META } from "@/src/data/apps";
 import { WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from "@/src/lib/desktop";
 import { WindowHeader } from "@/src/components/window/WindowHeader";
+import {
+  WindowChromeProvider,
+  type WindowChromeValue,
+} from "@/src/components/window/window-chrome";
 import { useServer } from "@/src/lib/api/server-context";
 import { useSelectedServer } from "@/src/lib/session";
 import { useTheme } from "@/src/lib/theme";
@@ -51,6 +55,8 @@ export function Window({ window: win, children }: { window: WindowState; childre
   const focused = focusedId === win.id;
   const chrome = win.chrome ?? APP_META[win.app].chrome;
   const light = chrome === "light" && theme === "light";
+  // Unified apps (Files) draw their own traffic lights and drag region.
+  const unified = APP_META[win.app].unifiedTitlebar === true;
   const title =
     win.app === "terminal"
       ? `Terminal — ${selected?.hostname || selected?.address || server?.hostname || server?.host || "server"}`
@@ -151,6 +157,15 @@ export function Window({ window: win, children }: { window: WindowState; childre
     target.addEventListener("pointerup", onUp);
   }
 
+  const controls: WindowChromeValue = {
+    focused,
+    maximized: win.maximized,
+    onDragStart: onHeaderPointerDown,
+    onMaximize: () => (win.maximized ? restoreWindow(win.id) : maximizeWindow(win.id)),
+    onMinimize: () => minimizeWindow(win.id),
+    onClose: () => closeWindow(win.id),
+  };
+
   return (
     <article
       ref={nodeRef}
@@ -186,18 +201,22 @@ export function Window({ window: win, children }: { window: WindowState; childre
         if (!win.minimized) focusWindow(win.id);
       }}
     >
-      <WindowHeader
-        title={title}
-        focused={focused}
-        chrome={light ? "light" : "dark"}
-        maximized={win.maximized}
-        onPointerDown={onHeaderPointerDown}
-        onDoubleClick={() => (win.maximized ? restoreWindow(win.id) : maximizeWindow(win.id))}
-        onMinimize={() => minimizeWindow(win.id)}
-        onMaximize={() => (win.maximized ? restoreWindow(win.id) : maximizeWindow(win.id))}
-        onClose={() => closeWindow(win.id)}
-      />
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      {unified ? null : (
+        <WindowHeader
+          title={title}
+          focused={focused}
+          chrome={light ? "light" : "dark"}
+          maximized={win.maximized}
+          onPointerDown={onHeaderPointerDown}
+          onDoubleClick={controls.onMaximize}
+          onMinimize={controls.onMinimize}
+          onMaximize={controls.onMaximize}
+          onClose={controls.onClose}
+        />
+      )}
+      <WindowChromeProvider value={controls}>
+        <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      </WindowChromeProvider>
       {!win.maximized
         ? EDGES.map((edge) => (
             <div

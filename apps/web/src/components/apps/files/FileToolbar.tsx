@@ -1,68 +1,282 @@
 "use client";
 
-import { Upload } from "lucide-react";
-import type { FileEntry } from "@/src/lib/api/files";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ChevronLeft,
+  ChevronRight,
+  Ellipsis,
+  FolderPlus,
+  LayoutGrid,
+  List,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { MenuList, type MenuEntry } from "@/src/components/apps/files/FileContextMenu";
+import { PageLayer, useTitlebarProps } from "@/src/components/window/window-chrome";
 
-export const toolbarClass =
-  "sui-hover inline-flex items-center gap-1 rounded-md px-2 py-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-40";
+export type FilesView = "icons" | "list";
 
+/** Finder-style unified toolbar; doubles as the window's drag region. */
 export function FileToolbar({
-  selected,
-  selectedEntries,
+  title,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
+  view,
+  onViewChange,
+  selectedCount,
+  query,
+  onQueryChange,
+  onUploadClick,
+  onNewFolder,
+  onNewFile,
   onOpen,
   onDownload,
-  onUploadClick,
   onRename,
   onDelete,
   onSelectAll,
   onClearSelection,
-  totalCount,
+  onCopyPath,
+  onTerminalHere,
 }: {
-  selected?: FileEntry | null;
-  selectedEntries?: FileEntry[];
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  view: FilesView;
+  onViewChange: (view: FilesView) => void;
+  selectedCount: number;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onUploadClick: () => void;
+  onNewFolder: () => void;
+  onNewFile: () => void;
   onOpen: () => void;
   onDownload: () => void;
-  onUploadClick: () => void;
   onRename: () => void;
   onDelete: () => void;
-  onSelectAll?: () => void;
-  onClearSelection?: () => void;
-  totalCount?: number;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+  onCopyPath: () => void;
+  onTerminalHere: () => void;
 }) {
-  const entries = selectedEntries ?? (selected ? [selected] : []);
-  const count = entries.length;
+  const titlebar = useTitlebarProps();
+  const none = selectedCount === 0;
+  const single = selectedCount === 1;
+
+  const menu: MenuEntry[] = [
+    { label: "New Folder", onSelect: onNewFolder },
+    { label: "New File", onSelect: onNewFile },
+    { label: "Upload…", onSelect: onUploadClick },
+    "separator",
+    { label: "Open", onSelect: onOpen, disabled: !single },
+    { label: "Download", onSelect: onDownload, disabled: none },
+    { label: "Rename", onSelect: onRename, disabled: !single },
+    { label: "Delete", onSelect: onDelete, disabled: none, destructive: true },
+    "separator",
+    none
+      ? { label: "Select All", onSelect: onSelectAll }
+      : { label: "Clear Selection", onSelect: onClearSelection },
+    { label: "Copy Path", onSelect: onCopyPath },
+    { label: "Open Terminal Here", onSelect: onTerminalHere },
+  ];
 
   return (
-    <div className="sui-toolbar flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
-      {count > 0 ? (
-        <span className="inline-flex items-center gap-1 rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950/80 dark:text-sky-300">
-          {count} {count === 1 ? "item" : "items"} selected
+    <div
+      className="sui-finder-toolbar flex h-[52px] shrink-0 items-center gap-3 pr-3 pl-2 select-none"
+      {...titlebar}
+    >
+      <div className="flex items-center">
+        <ToolbarIconButton label="Back" disabled={!canGoBack} onClick={onBack} plain>
+          <ChevronLeft aria-hidden className="size-[18px]" strokeWidth={2} />
+        </ToolbarIconButton>
+        <ToolbarIconButton label="Forward" disabled={!canGoForward} onClick={onForward} plain>
+          <ChevronRight aria-hidden className="size-[18px]" strokeWidth={2} />
+        </ToolbarIconButton>
+      </div>
+      <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold">{title}</h2>
+      <div
+        role="radiogroup"
+        aria-label="View"
+        className="sui-finder-segment flex shrink-0 items-center rounded-[9px] p-[2px]"
+      >
+        <SegmentButton
+          label="Icon view"
+          active={view === "icons"}
+          onClick={() => onViewChange("icons")}
+        >
+          <LayoutGrid aria-hidden className="size-[14px]" />
+        </SegmentButton>
+        <SegmentButton
+          label="List view"
+          active={view === "list"}
+          onClick={() => onViewChange("list")}
+        >
+          <List aria-hidden className="size-[14px]" />
+        </SegmentButton>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <ToolbarIconButton label="Upload" onClick={onUploadClick}>
+          <ArrowUpFromLine aria-hidden className="size-[14px]" />
+        </ToolbarIconButton>
+        <ToolbarIconButton label="New folder" onClick={onNewFolder}>
+          <FolderPlus aria-hidden className="size-[14px]" />
+        </ToolbarIconButton>
+        <ToolbarIconButton label="Download" disabled={none} onClick={onDownload}>
+          <ArrowDownToLine aria-hidden className="size-[14px]" />
+        </ToolbarIconButton>
+        <ToolbarIconButton label="Delete" disabled={none} onClick={onDelete}>
+          <Trash2 aria-hidden className="size-[14px]" />
+        </ToolbarIconButton>
+        <MoreMenu actions={menu} />
+      </div>
+      <label className="relative flex shrink-0 items-center">
+        <Search
+          aria-hidden
+          className="sui-finder-muted pointer-events-none absolute left-2.5 size-[13px]"
+        />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search"
+          aria-label="Search"
+          className="sui-finder-search w-44 rounded-full py-[5px] pr-3 pl-8 text-[12px] outline-none"
+        />
+      </label>
+    </div>
+  );
+}
+
+function ToolbarIconButton({
+  label,
+  disabled,
+  plain,
+  tooltip = true,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  plain?: boolean;
+  tooltip?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <WithTooltip label={label} show={tooltip}>
+      <button
+        type="button"
+        aria-label={label}
+        disabled={disabled}
+        className={`${plain ? "sui-finder-plain-button" : "sui-finder-control"} flex items-center justify-center rounded-[8px] outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-35 ${
+          plain ? "size-7" : "h-[28px] w-[30px]"
+        }`}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </WithTooltip>
+  );
+}
+
+/** macOS-style hover label under a toolbar control (shown after a short delay, or on keyboard focus). */
+function WithTooltip({
+  label,
+  show = true,
+  children,
+}: {
+  label: string;
+  show?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <span className="group/tip relative flex">
+      {children}
+      {show ? (
+        <span aria-hidden className="sui-toolbar-tip">
+          {label}
         </span>
       ) : null}
-      <button type="button" className={toolbarClass} disabled={count !== 1} onClick={onOpen}>
-        Open
+    </span>
+  );
+}
+
+function SegmentButton({
+  label,
+  active,
+  onClick,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <WithTooltip label={label}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={active}
+        aria-label={label}
+        data-active={active}
+        className="sui-finder-segment-button flex h-[22px] w-[28px] items-center justify-center rounded-[7px] outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        onClick={onClick}
+      >
+        {children}
       </button>
-      <button type="button" className={toolbarClass} disabled={count === 0} onClick={onDownload}>
-        Download
-      </button>
-      <button type="button" className={toolbarClass} onClick={onUploadClick}>
-        <Upload aria-hidden className="size-3.5" />
-        Upload
-      </button>
-      <button type="button" className={toolbarClass} disabled={count !== 1} onClick={onRename}>
-        Rename
-      </button>
-      <button type="button" className={toolbarClass} disabled={count === 0} onClick={onDelete}>
-        Delete
-      </button>
-      {count > 0 ? (
-        <button type="button" className={toolbarClass} onClick={onClearSelection}>
-          Clear
-        </button>
-      ) : totalCount && totalCount > 0 ? (
-        <button type="button" className={toolbarClass} onClick={onSelectAll}>
-          Select all
-        </button>
+    </WithTooltip>
+  );
+}
+
+function MoreMenu({ actions }: { actions: MenuEntry[] }) {
+  // Viewport position of the open menu; rendered on <body> so the window's
+  // overflow and backdrop-filter cannot clip or offset it.
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!anchor) return;
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!buttonRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setAnchor(null);
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setAnchor(null);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [anchor]);
+
+  function toggle() {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    setAnchor(
+      anchor || !rect ? null : { top: rect.bottom + 6, right: window.innerWidth - rect.right },
+    );
+  }
+
+  return (
+    <div ref={buttonRef}>
+      <ToolbarIconButton label="More actions" tooltip={!anchor} onClick={toggle}>
+        <Ellipsis aria-hidden className="size-[15px]" />
+      </ToolbarIconButton>
+      {anchor ? (
+        <PageLayer>
+          <div ref={menuRef} className="fixed z-[80]" style={anchor}>
+            <MenuList label="More actions" actions={actions} onClose={() => setAnchor(null)} />
+          </div>
+        </PageLayer>
       ) : null}
     </div>
   );

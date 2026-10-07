@@ -30,6 +30,28 @@ html[data-theme="dark"] {
   --menu-bg: rgba(32, 32, 34, 0.92);
   --menu-fg: #f2f2f7;
   --menu-border: rgba(255, 255, 255, 0.12);
+  --finder-sidebar: rgba(40, 40, 43, 0.94);
+  --finder-toolbar: #2a2a2c;
+  --finder-content: #1e1e1e;
+  --finder-hairline: rgba(255, 255, 255, 0.09);
+  --finder-text: #e8e8ed;
+  --finder-muted: #98989f;
+  --finder-section: rgba(235, 235, 245, 0.42);
+  --finder-nav-hover: rgba(255, 255, 255, 0.06);
+  --finder-nav-active: rgba(255, 255, 255, 0.12);
+  --finder-tile-selected: rgba(255, 255, 255, 0.1);
+  --finder-control: rgba(255, 255, 255, 0.06);
+  --finder-control-border: rgba(255, 255, 255, 0.1);
+  --finder-control-hover: rgba(255, 255, 255, 0.12);
+  --finder-segment: rgba(0, 0, 0, 0.28);
+  --finder-segment-active: rgba(255, 255, 255, 0.16);
+  --finder-search: rgba(255, 255, 255, 0.08);
+  --finder-stripe: rgba(255, 255, 255, 0.035);
+  --finder-accent: #0a84ff;
+  --dock-glass: rgba(70, 70, 76, 0.32);
+  --dock-glass-hover: rgba(80, 80, 86, 0.38);
+  --dock-border: rgba(255, 255, 255, 0.16);
+  --traffic-idle: #4c4c51;
   --desktop-scrim: linear-gradient(
     to bottom,
     rgba(0, 0, 0, 0.22),
@@ -67,6 +89,28 @@ html[data-theme="light"] {
   --menu-bg: rgba(255, 255, 255, 0.94);
   --menu-fg: #1d1d1f;
   --menu-border: rgba(0, 0, 0, 0.1);
+  --finder-sidebar: rgba(240, 240, 242, 0.95);
+  --finder-toolbar: #f6f6f6;
+  --finder-content: #ffffff;
+  --finder-hairline: #e3e3e5;
+  --finder-text: #1d1d1f;
+  --finder-muted: #6e6e73;
+  --finder-section: #a1a1a6;
+  --finder-nav-hover: rgba(0, 0, 0, 0.04);
+  --finder-nav-active: rgba(0, 0, 0, 0.08);
+  --finder-tile-selected: rgba(0, 0, 0, 0.06);
+  --finder-control: #ffffff;
+  --finder-control-border: #d6d6d9;
+  --finder-control-hover: #f2f2f4;
+  --finder-segment: #e9e9eb;
+  --finder-segment-active: #ffffff;
+  --finder-search: #e9e9eb;
+  --finder-stripe: #f5f5f7;
+  --finder-accent: #007aff;
+  --dock-glass: rgba(255, 255, 255, 0.2);
+  --dock-glass-hover: rgba(255, 255, 255, 0.26);
+  --dock-border: rgba(255, 255, 255, 0.38);
+  --traffic-idle: #d1d1d6;
   --desktop-scrim: linear-gradient(
     to bottom,
     rgba(255, 255, 255, 0.18),
@@ -326,22 +370,23 @@ body {
 .sui-dock {
   display: flex;
   align-items: flex-end;
-  gap: 16px;
-  padding: 14px 20px 12px;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(18, 18, 20, 0.52);
+  gap: 6px;
+  padding: 5px 6px 4px;
+  border-radius: 18px;
+  border: 1px solid var(--dock-border);
+  background: var(--dock-glass);
   box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.32),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(40px) saturate(1.8);
-  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+    0 12px 36px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
   box-sizing: border-box;
+  transition: background-color 160ms ease;
 }
 
 .sui-dock:hover {
-  background: rgba(22, 22, 24, 0.62);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--dock-glass-hover);
 }
 
 .sui-dock-slot {
@@ -393,7 +438,7 @@ body {
   display: block;
   overflow: hidden;
   border-radius: 22%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
 }
 
 .sui-mac-app-icon {
@@ -413,10 +458,11 @@ body {
 
 .sui-dock-indicator {
   flex: none;
-  margin-top: 3px;
+  margin-top: 2px;
   height: 4px;
   width: 4px;
   border-radius: 999px;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
   transition:
     opacity 140ms ease,
     background-color 140ms ease;
@@ -424,36 +470,53 @@ body {
 
 .sui-dock-separator {
   position: absolute;
-  left: calc((1 - var(--dock-scale, 1)) * 50% - 12px);
-  top: 10px;
-  height: 28px;
+  left: calc((1 - var(--dock-scale, 1)) * 50% - 7px);
+  top: 6px;
+  height: 36px;
   width: 1px;
-  background: rgba(255, 255, 255, 0.28);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.24);
   pointer-events: none;
 }
 
 .sui-dock-slot:has(.sui-dock-separator) {
-  margin-left: 8px;
-  padding-left: 12px;
+  margin-left: 4px;
+  padding-left: 8px;
 }
 
-.sui-dock-tooltip {
+/* Dark tooltip bubble shared by the Dock and the Files toolbar. */
+.sui-dock-tooltip,
+.sui-toolbar-tip {
   pointer-events: none;
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 10px);
-  z-index: 2;
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(20, 22, 26, 0.72);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(17, 24, 39, 0.95);
   color: #fff;
-  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.01em;
   white-space: nowrap;
   opacity: 0;
-  transform: translateX(var(--dock-tooltip-x, 0px)) translateY(6px);
+}
+
+.sui-dock-tooltip::after,
+.sui-toolbar-tip::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  rotate: 45deg;
+  background: rgba(17, 24, 39, 0.95);
+}
+
+.sui-dock-tooltip {
+  bottom: calc(100% + 10px);
+  z-index: 2;
+  padding: 4px 12px;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  transform: translateX(calc(var(--dock-tooltip-x, 0px) - 50%))
+    translateY(calc(var(--dock-tooltip-y, 0px) + 6px));
   transition:
     opacity 140ms ease,
     transform 140ms ease;
@@ -461,9 +524,18 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
+.sui-dock-tooltip::after {
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .sui-dock-tooltip[data-show="true"] {
   opacity: 1;
-  transform: translateX(var(--dock-tooltip-x, 0px)) translateY(0);
+  transform: translateX(calc(var(--dock-tooltip-x, 0px) - 50%))
+    translateY(var(--dock-tooltip-y, 0px));
 }
 
 .sui-dock-badge {
@@ -774,4 +846,163 @@ body {
   .sui-dock-tooltip {
     transition: none;
   }
+}
+
+/* ---- Files: Finder look (adapted from MacOS-Web-Simulator, MIT) ---- */
+.sui-finder {
+  color: var(--finder-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-sans), sans-serif;
+}
+
+.sui-finder-sidebar {
+  background: var(--finder-sidebar);
+  border-right: 1px solid var(--finder-hairline);
+}
+
+.sui-finder-toolbar,
+.sui-finder-sheet {
+  background: var(--finder-toolbar);
+  border-bottom: 1px solid var(--finder-hairline);
+}
+
+.sui-finder-muted {
+  color: var(--finder-muted);
+}
+
+.sui-finder-nav-item {
+  transition: background-color 120ms ease;
+}
+
+.sui-finder-nav-item:hover {
+  background: var(--finder-nav-hover);
+}
+
+.sui-finder-nav-item[data-active="true"] {
+  background: var(--finder-nav-active);
+  font-weight: 500;
+}
+
+.sui-finder-control {
+  color: var(--finder-muted);
+  background: var(--finder-control);
+  border: 1px solid var(--finder-control-border);
+  transition: background-color 120ms ease;
+}
+
+.sui-finder-control:enabled:hover {
+  background: var(--finder-control-hover);
+  color: var(--finder-text);
+}
+
+.sui-finder-plain-button {
+  color: var(--finder-muted);
+}
+
+.sui-finder-plain-button:enabled:hover {
+  background: var(--finder-nav-hover);
+  color: var(--finder-text);
+}
+
+.sui-finder-segment {
+  background: var(--finder-segment);
+  border: 1px solid var(--finder-control-border);
+}
+
+.sui-finder-segment-button {
+  color: var(--finder-muted);
+}
+
+.sui-finder-segment-button[data-active="true"] {
+  background: var(--finder-segment-active);
+  color: var(--finder-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.sui-finder-search {
+  background: var(--finder-search);
+  border: 1px solid transparent;
+}
+
+.sui-finder-search:focus {
+  border-color: var(--finder-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--finder-accent) 25%, transparent);
+}
+
+.sui-finder-search::placeholder {
+  color: var(--finder-muted);
+}
+
+.sui-finder-list-head th {
+  background: var(--finder-content);
+  color: var(--finder-muted);
+  border-bottom: 1px solid var(--finder-hairline);
+}
+
+.sui-finder-rows .sui-finder-row:nth-child(even) {
+  background: var(--finder-stripe);
+}
+
+.sui-finder-rows .sui-finder-row[data-selected="true"] {
+  background: var(--finder-accent);
+  color: #ffffff;
+}
+
+.sui-finder-rows .sui-finder-row[data-selected="true"] .sui-finder-muted {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sui-finder-rows .sui-finder-row[data-drop="true"] {
+  background: color-mix(in srgb, var(--finder-accent) 22%, transparent);
+  outline: 2px solid var(--finder-accent);
+  outline-offset: -2px;
+}
+
+.sui-finder-marquee {
+  border: 1px solid color-mix(in srgb, var(--finder-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--finder-accent) 18%, transparent);
+}
+
+/* Toolbar hover labels (Files), shown below the control. */
+.sui-toolbar-tip {
+  top: calc(100% + 7px);
+  z-index: 60;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  translate: -50% -2px;
+  transition:
+    opacity 120ms ease,
+    translate 120ms ease;
+}
+
+.sui-toolbar-tip::before {
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.group\/tip:hover > .sui-toolbar-tip,
+.group\/tip:has(:focus-visible) > .sui-toolbar-tip {
+  opacity: 1;
+  translate: -50% 0;
+  transition-delay: 450ms;
+}
+
+.group\/tip:has(:focus-visible) > .sui-toolbar-tip {
+  transition-delay: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sui-toolbar-tip {
+    transition: none;
+  }
+}
+
+/* Window traffic lights: flat macOS circles with a hairline rim and a soft
+   top highlight; glyphs only appear while the group is hovered. */
+.sui-traffic-light {
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.04));
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
 }

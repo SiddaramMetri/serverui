@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { FileGrid } from "@/src/components/apps/files/FileGrid";
 import { FileList } from "@/src/components/apps/files/FileList";
+import { kindLabel } from "@/src/components/apps/files/file-icons";
 import type { FileEntry } from "@/src/lib/api/files";
 
 function entry(name: string, type: "file" | "dir"): FileEntry {
@@ -101,7 +103,8 @@ describe("FileList", () => {
 
     expect(screen.getByText("Name")).toBeInTheDocument();
     expect(screen.getByText("Size")).toBeInTheDocument();
-    expect(screen.getByText("Modified")).toBeInTheDocument();
+    expect(screen.getByText("Date Modified")).toBeInTheDocument();
+    expect(screen.getByText("Kind")).toBeInTheDocument();
 
     expect(screen.getByText("file1.txt")).toBeInTheDocument();
     expect(screen.getByText("file2.txt")).toBeInTheDocument();
@@ -291,5 +294,74 @@ describe("FileList", () => {
 
     fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
     expect(screen.queryByTestId("selection-marquee")).not.toBeInTheDocument();
+  });
+});
+
+const gridEntries: FileEntry[] = [
+  {
+    name: "docs",
+    path: "/srv/docs",
+    type: "dir",
+    size: 0,
+    mode: "drwxr-xr-x",
+    modified: "2026-10-01T10:00:00Z",
+  },
+  {
+    name: "site.zip",
+    path: "/srv/site.zip",
+    type: "file",
+    size: 2048,
+    mode: "-rw-r--r--",
+    modified: "2026-10-01T10:00:00Z",
+  },
+];
+
+function renderGrid(overrides: Partial<Parameters<typeof FileGrid>[0]> = {}) {
+  const props: Parameters<typeof FileGrid>[0] = {
+    path: "/srv",
+    entries: gridEntries,
+    selectedPaths: new Set(),
+    onSelect: vi.fn(),
+    onToggleSelect: vi.fn(),
+    onSelectRange: vi.fn(),
+    onSelectionChange: vi.fn(),
+    onClearSelection: vi.fn(),
+    onOpen: vi.fn(),
+    onContextMenu: vi.fn(),
+    ...overrides,
+  };
+  render(<FileGrid {...props} />);
+  return props;
+}
+
+describe("FileGrid", () => {
+  it("renders an option per entry and marks the selection", () => {
+    renderGrid({ selectedPaths: new Set(["/srv/site.zip"]) });
+    expect(screen.getByRole("listbox", { name: "Files" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "docs" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("option", { name: "site.zip" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("makes folders drop targets for moving files", () => {
+    renderGrid();
+    expect(screen.getByRole("option", { name: "docs" })).toHaveAttribute(
+      "data-file-drop",
+      "/srv/docs",
+    );
+    expect(screen.getByRole("option", { name: "site.zip" })).not.toHaveAttribute("data-file-drop");
+  });
+});
+
+describe("kindLabel", () => {
+  it("describes entries the way Finder's Kind column does", () => {
+    expect(kindLabel({ name: "docs", type: "dir" })).toBe("Folder");
+    expect(kindLabel({ name: "site.zip", type: "file" })).toBe("ZIP archive");
+    expect(kindLabel({ name: "backup.tar.gz", type: "file" })).toBe("Gzip tar archive");
+    expect(kindLabel({ name: "photo.png", type: "file" })).toBe("PNG image");
+    expect(kindLabel({ name: "README", type: "file" })).toBe("Plain text");
+    expect(kindLabel({ name: "dump.bin", type: "file" })).toBe("BIN file");
   });
 });

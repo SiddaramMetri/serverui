@@ -1,30 +1,21 @@
 "use client";
 
-import {
-  File as FileIcon,
-  FileArchive,
-  FileAudio,
-  FileCode,
-  FileImage,
-  FileText,
-  FileVideo,
-  Folder,
-} from "lucide-react";
-import { useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { getFileType } from "@/src/lib/files/file-type";
+import { useRef, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { formatModified, formatSize } from "@/src/lib/files/format";
 import { parentPath, type FileEntry } from "@/src/lib/api/files";
-import { FILE_DROP_ATTR, useFileMoveDrag } from "@/src/components/apps/files/use-file-move-drag";
+import { FolderIcon, FinderIcon, kindLabel } from "@/src/components/apps/files/file-icons";
+import {
+  FILE_DROP_ATTR,
+  useFileMoveDrag,
+  type FileMoveGhost,
+} from "@/src/components/apps/files/use-file-move-drag";
+import {
+  useMarqueeSelection,
+  type MarqueeBox,
+} from "@/src/components/apps/files/use-marquee-selection";
+import { PageLayer } from "@/src/components/window/window-chrome";
 
-type MarqueeBox = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
-const DRAG_THRESHOLD = 5;
-
+/** Finder list view: striped rows with Name, Date Modified, Size and Kind. */
 export function FileList({
   path,
   entries,
@@ -48,7 +39,6 @@ export function FileList({
   onToggleSelect?: (path: string) => void;
   onSelectRange?: (path: string) => void;
   onSelectionChange?: (paths: Set<string>) => void;
-  onSelectAll?: () => void;
   onClearSelection?: () => void;
   onOpen: (entry: FileEntry) => void;
   onParent: () => void;
@@ -56,131 +46,21 @@ export function FileList({
   onMove?: (sourcePath: string, destDir: string, sourceType: "file" | "dir") => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const parentDest = parentPath(path);
   const { ghost, startPress, consumeClick } = useFileMoveDrag(onMove ?? (() => {}), path);
 
   const activeSelected = selectedPaths ?? (selected ? new Set([selected]) : new Set<string>());
-
-  function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.button !== 0) return;
-
-    const container = containerRef.current;
-    if (!container) return;
-
-    const target = e.target as HTMLElement;
-    const isHeader = Boolean(target.closest("thead"));
-    const isParentRow = Boolean(target.closest("tr[data-parent]"));
-    if (isHeader || isParentRow) return;
-
-    const tr = target.closest("tr[data-path]") as HTMLTableRowElement | null;
-    const clickedPath = tr?.getAttribute("data-path") ?? null;
-
-    const initialClientX = e.clientX;
-    const initialClientY = e.clientY;
-
-    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-    const isShift = e.shiftKey;
-    // A plain drag on a row moves the file. Empty space and modifier drags select.
-    const rowDragMovesFile = Boolean(clickedPath) && !isCtrlOrMeta && !isShift;
-
-    let dragStarted = false;
-    const baseSelection = new Set(activeSelected);
-
-    function handleMouseMove(moveEvent: globalThis.MouseEvent) {
-      if (rowDragMovesFile) return;
-
-      const dist = Math.hypot(
-        moveEvent.clientX - initialClientX,
-        moveEvent.clientY - initialClientY,
-      );
-
-      if (!dragStarted && dist > 4) {
-        dragStarted = true;
-        document.body.style.userSelect = "none";
-      }
-
-      if (dragStarted && container) {
-        const containerRect = container.getBoundingClientRect();
-
-        const boxViewportLeft = Math.min(initialClientX, moveEvent.clientX);
-        const boxViewportRight = Math.max(initialClientX, moveEvent.clientX);
-        const boxViewportTop = Math.min(initialClientY, moveEvent.clientY);
-        const boxViewportBottom = Math.max(initialClientY, moveEvent.clientY);
-
-        setMarquee({
-          left: boxViewportLeft - containerRect.left,
-          top: boxViewportTop - containerRect.top,
-          width: boxViewportRight - boxViewportLeft,
-          height: boxViewportBottom - boxViewportTop,
-        });
-
-        const rows = container.querySelectorAll<HTMLTableRowElement>("tr[data-path]");
-        const intersectingPaths = new Set<string>();
-
-        rows.forEach((row) => {
-          const rowPath = row.getAttribute("data-path");
-          if (!rowPath) return;
-
-          const rowRect = row.getBoundingClientRect();
-          const intersects =
-            boxViewportLeft < rowRect.right &&
-            boxViewportRight > rowRect.left &&
-            boxViewportTop < rowRect.bottom &&
-            boxViewportBottom > rowRect.top;
-
-          if (intersects) {
-            intersectingPaths.add(rowPath);
-          }
-        });
-
-        if (isCtrlOrMeta) {
-          const next = new Set(baseSelection);
-          intersectingPaths.forEach((p) => {
-            if (baseSelection.has(p)) {
-              next.delete(p);
-            } else {
-              next.add(p);
-            }
-          });
-          onSelectionChange?.(next);
-        } else {
-          onSelectionChange?.(intersectingPaths);
-        }
-      }
-    }
-
-    function handleMouseUp(upEvent: globalThis.MouseEvent) {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "";
-
-      if (dragStarted) {
-        setMarquee(null);
-        return;
-      }
-
-      if (rowDragMovesFile) {
-        const dist = Math.hypot(upEvent.clientX - initialClientX, upEvent.clientY - initialClientY);
-        if (dist >= DRAG_THRESHOLD) return;
-      }
-
-      if (clickedPath) {
-        if (isShift) {
-          onSelectRange?.(clickedPath);
-        } else if (isCtrlOrMeta) {
-          onToggleSelect?.(clickedPath);
-        } else {
-          onSelect(clickedPath, upEvent as unknown as MouseEvent);
-        }
-      } else {
-        onClearSelection?.();
-      }
-    }
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  }
+  const { marquee, handleMouseDown } = useMarqueeSelection({
+    containerRef,
+    itemSelector: "tr[data-path]",
+    ignoreSelector: "thead, tr[data-parent]",
+    selectedPaths: activeSelected,
+    onSelect,
+    onToggleSelect,
+    onSelectRange,
+    onSelectionChange,
+    onClearSelection,
+  });
 
   return (
     <div
@@ -191,39 +71,29 @@ export function FileList({
         onContextMenu(event, null);
       }}
     >
-      {marquee ? (
-        <div
-          data-testid="selection-marquee"
-          className="pointer-events-none absolute z-20 rounded-[2px] border border-sky-500 bg-sky-500/20 dark:border-sky-400 dark:bg-sky-400/25"
-          style={{
-            left: marquee.left,
-            top: marquee.top,
-            width: marquee.width,
-            height: marquee.height,
-          }}
-        />
-      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <table className="w-full table-fixed text-left text-[13px]">
-          <thead className="sui-toolbar sticky top-0 z-10 text-[11px] sui-muted">
-            <tr className="border-b sui-hairline">
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="w-[22%] px-4 py-2 font-medium">Size</th>
-              <th className="w-[28%] px-4 py-2 font-medium">Modified</th>
+        <table className="w-full table-fixed text-left text-[12.5px]">
+          <thead className="sui-finder-list-head sticky top-0 z-10 text-[11px]">
+            <tr>
+              <th className="py-1.5 pr-3 pl-5 font-medium">Name</th>
+              <th className="w-[24%] px-3 py-1.5 font-medium">Date Modified</th>
+              <th className="w-[13%] px-3 py-1.5 text-right font-medium">Size</th>
+              <th className="w-[20%] px-3 py-1.5 font-medium">Kind</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="sui-finder-rows">
             {path !== "/" ? (
               <tr
                 data-parent="true"
                 {...{ [FILE_DROP_ATTR]: parentDest }}
-                className={`cursor-default select-none border-b sui-hairline sui-hover ${ghost?.dest === parentDest ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
+                className="sui-finder-row cursor-default select-none"
+                data-drop={ghost?.dest === parentDest}
                 onClick={onParent}
                 onDoubleClick={onParent}
               >
-                <td className="px-4 py-1.5" colSpan={3}>
+                <td className="py-[3px] pr-3 pl-5" colSpan={4}>
                   <span className="flex items-center gap-2">
-                    <Folder aria-hidden className="size-4 fill-sky-400 text-sky-500" />
+                    <FolderIcon size={18} />
                     ..
                   </span>
                 </td>
@@ -248,14 +118,7 @@ export function FileList({
         </table>
         <div aria-hidden className="h-24 shrink-0" />
       </div>
-      {ghost ? (
-        <div
-          className="pointer-events-none fixed z-[90] max-w-[220px] truncate rounded-md bg-black/80 px-2 py-1 text-[12px] text-white shadow-lg"
-          style={{ left: ghost.x + 12, top: ghost.y + 12 }}
-        >
-          {ghost.name}
-        </div>
-      ) : null}
+      <FileViewOverlays marquee={marquee} ghost={ghost} />
     </div>
   );
 }
@@ -280,8 +143,11 @@ function FileItem({
   return (
     <tr
       data-path={entry.path}
+      data-entry-name={entry.name}
+      data-selected={selected}
+      data-drop={dropActive}
       {...(entry.type === "dir" ? { [FILE_DROP_ATTR]: entry.path } : {})}
-      className={`cursor-default select-none border-b sui-hairline sui-hover ${selected ? "sui-selected" : ""} ${dropActive ? "bg-sky-500/20 outline-2 outline-sky-400" : ""}`}
+      className={`sui-finder-row cursor-default select-none ${selected ? "sui-selected" : ""}`}
       onPointerDown={onPointerDown}
       onDragStart={(event) => event.preventDefault()}
       onDoubleClick={() => {
@@ -290,41 +156,50 @@ function FileItem({
       }}
       onContextMenu={onContextMenu}
     >
-      <td className="px-4 py-1.5">
+      <td className="py-[3px] pr-3 pl-5">
         <span className="flex max-w-full items-center gap-2">
-          <EntryIcon entry={entry} />
+          <FinderIcon entry={entry} size={18} />
           <span className="truncate">{entry.name}</span>
         </span>
       </td>
-      <td className="px-4 py-1.5 whitespace-nowrap sui-muted">
-        {entry.type === "dir" ? "—" : formatSize(entry.size)}
+      <td className="sui-finder-muted px-3 py-[3px] whitespace-nowrap">
+        {formatModified(entry.modified)}
       </td>
-      <td className="px-4 py-1.5 whitespace-nowrap sui-muted">{formatModified(entry.modified)}</td>
+      <td className="sui-finder-muted px-3 py-[3px] text-right whitespace-nowrap">
+        {entry.type === "dir" ? "--" : formatSize(entry.size)}
+      </td>
+      <td className="sui-finder-muted truncate px-3 py-[3px]">{kindLabel(entry)}</td>
     </tr>
   );
 }
 
-function EntryIcon({ entry }: { entry: FileEntry }) {
-  if (entry.type === "dir") {
-    return <Folder aria-hidden className="size-4 shrink-0 fill-sky-400 text-sky-500" />;
-  }
-  const kind = getFileType({ name: entry.name, mime: entry.mime });
-  const className = "size-4 shrink-0 text-neutral-400";
-  switch (kind) {
-    case "image":
-      return <FileImage aria-hidden className={className} />;
-    case "video":
-      return <FileVideo aria-hidden className={className} />;
-    case "audio":
-      return <FileAudio aria-hidden className={className} />;
-    case "pdf":
-    case "text":
-      return <FileText aria-hidden className={className} />;
-    case "code":
-      return <FileCode aria-hidden className={className} />;
-    case "archive":
-      return <FileArchive aria-hidden className={className} />;
-    default:
-      return <FileIcon aria-hidden className={className} />;
-  }
+/** Rubber-band box and drag label shared by the icon and list views. */
+export function FileViewOverlays({
+  marquee,
+  ghost,
+}: {
+  marquee: MarqueeBox | null;
+  ghost: FileMoveGhost | null;
+}) {
+  return (
+    <>
+      {marquee ? (
+        <div
+          data-testid="selection-marquee"
+          className="sui-finder-marquee pointer-events-none absolute z-20 rounded-[3px]"
+          style={marquee}
+        />
+      ) : null}
+      {ghost ? (
+        <PageLayer>
+          <div
+            className="pointer-events-none fixed z-[90] max-w-[220px] truncate rounded-md bg-black/80 px-2 py-1 text-[12px] text-white shadow-lg"
+            style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+          >
+            {ghost.name}
+          </div>
+        </PageLayer>
+      ) : null}
+    </>
+  );
 }

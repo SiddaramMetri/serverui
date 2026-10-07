@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
   archiveStem,
@@ -34,8 +33,10 @@ import { useSelectedServer } from "@/src/lib/session";
 import { formatSize, totalSize } from "@/src/lib/files/format";
 import { Breadcrumbs } from "@/src/components/apps/files/Breadcrumbs";
 import { FileContextMenu } from "@/src/components/apps/files/FileContextMenu";
+import { FileGrid } from "@/src/components/apps/files/FileGrid";
 import { FileList } from "@/src/components/apps/files/FileList";
-import { FileToolbar, toolbarClass } from "@/src/components/apps/files/FileToolbar";
+import { FileToolbar, type FilesView } from "@/src/components/apps/files/FileToolbar";
+import { FilesSidebar } from "@/src/components/apps/files/FilesSidebar";
 
 type Dialog =
   | { type: "file"; value: string }
@@ -43,7 +44,32 @@ type Dialog =
   | { type: "rename"; value: string; from: string }
   | { type: "extract"; value: string; archive: FileEntry };
 
+/** Small text buttons in the Files sheets and banners. */
+const toolbarClass =
+  "sui-hover inline-flex items-center gap-1 rounded-md px-2 py-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-40";
+
+const DIALOG_TEXT: Record<Dialog["type"], { label: string; submit: string }> = {
+  dir: { label: "Folder name", submit: "Create" },
+  file: { label: "File name", submit: "Create" },
+  rename: { label: "Rename", submit: "Rename" },
+  extract: { label: "Extract to", submit: "Extract" },
+};
+
 const EXTRACT_POLL_MS = 750;
+const HOME_PATH = "~";
+const VIEW_STORAGE_KEY = "serverui-files-view";
+
+function readStoredView(): FilesView {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "icons";
+  } catch {
+    return "icons";
+  }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type MenuState = {
   x: number;
@@ -90,14 +116,14 @@ export function FilesApp() {
   // re-renders the banner, not every row of the folder.
   const [extractJob, setExtractJob] = useState<ExtractJob | null>(null);
   const [extractBusy, setExtractBusy] = useState(false);
+  const [view, setView] = useState<FilesView>(readStoredView);
   const uploadRef = useRef<HTMLInputElement>(null);
   // The folder on screen, read when a background extraction finishes.
   const pathRef = useRef(path);
   const serverId = selectedServer?.id || "";
-  const homePath =
-    selectedServer?.username || server?.username
-      ? `/home/${selectedServer?.username || server?.username}`
-      : "/home";
+  // The server resolves "~" to the user's real home (e.g. /root for root);
+  // remember it so the sidebar can highlight Home.
+  const [homeDir, setHomeDir] = useState<string | null>(null);
 
   async function load(nextPath: string) {
     if (!serverId) return;
@@ -105,6 +131,7 @@ export function FilesApp() {
     setError(null);
     try {
       const result = await listFiles(serverId, nextPath);
+      if (nextPath === HOME_PATH) setHomeDir(result.path);
       const sorted = [...result.entries].sort((a, b) => {
         if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -393,7 +420,7 @@ export function FilesApp() {
       link.remove();
 
       if (i < files.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await wait(350);
       }
     }
 
@@ -496,9 +523,19 @@ export function FilesApp() {
       setLastSelectedPath(inView[inView.length - 1]);
     }
   }
+
   function onExtractFinished(job: ExtractJob) {
     setExtractBusy(false);
     if (job.state === "done") void showExtracted(job);
+  }
+
+  function changeView(next: FilesView) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // The view is a per-viewer convenience; ignore unavailable storage.
+    }
   }
 
   function openContextMenu(event: MouseEvent, entry: FileEntry | null) {
@@ -522,6 +559,17 @@ export function FilesApp() {
   function copyPath(value: string) {
     void navigator.clipboard.writeText(value);
   }
+
+  /** Copies every selected path when several are selected, otherwise `single`. */
+  function copySelectionPaths(single: string) {
+    copyPath(
+      selectedEntries.length > 1 ? selectedEntries.map((entry) => entry.path).join("\n") : single,
+    );
+  }
+
+  const newFolder = () => setDialog({ type: "dir", value: "" });
+  const newFile = () => setDialog({ type: "file", value: "" });
+  const pickUpload = () => uploadRef.current?.click();
 
   function openInfo(entry: FileEntry | null) {
     const target = entry;
@@ -548,17 +596,32 @@ export function FilesApp() {
       ? menu.entry
       : null;
 
-  const places = [
-    { label: "Root", path: "/" },
-    { label: "Home", path: homePath },
-    { label: "tmp", path: "/tmp" },
-    { label: "etc", path: "/etc" },
-    { label: "var", path: "/var" },
-  ];
+  const viewProps = {
+    path,
+    entries: visible,
+    selectedPaths,
+    onSelect: handleRowSelect,
+    onToggleSelect: toggleSelect,
+    onSelectRange: selectRange,
+    onSelectionChange: handleSelectionChange,
+    onClearSelection: clearSelection,
+    onOpen: openEntry,
+    onContextMenu: openContextMenu,
+    onMove: (source: string, dest: string, type: "file" | "dir") =>
+      void handleMove(source, dest, type),
+  };
+  const serverName = selectedServer?.name || server?.hostname || "Server";
+  const title = path === "/" ? serverName : baseName(path);
+  const statusText =
+    selectedEntries.length > 0
+      ? `${selectedEntries.length} of ${visible.length} selected${
+          selectedTotalSize > 0 ? `, ${formatSize(selectedTotalSize)}` : ""
+        }`
+      : `${visible.length} ${visible.length === 1 ? "item" : "items"}, ${formatSize(totalSize(visible))}`;
 
   return (
     <div
-      className="flex h-full min-h-0 overflow-hidden sui-app"
+      className="sui-finder flex h-full min-h-0 overflow-hidden"
       onClick={() => setMenu(null)}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement;
@@ -585,76 +648,29 @@ export function FilesApp() {
         }
       }}
     >
-      <aside className="sui-sidebar flex w-[188px] shrink-0 flex-col overflow-y-auto px-3 py-4 text-[12px]">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] sui-muted">
-          Favorites
-        </p>
-        {places.map((place) => (
-          <button
-            key={place.path}
-            type="button"
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none sui-hover focus-visible:ring-2 focus-visible:ring-sky-400 ${
-              path === place.path ? "sui-selected" : ""
-            }`}
-            onClick={() => goTo(place.path)}
-          >
-            <Home aria-hidden className="size-3.5 opacity-80" />
-            {place.label}
-          </button>
-        ))}
-      </aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col sui-app">
-        <div className="sui-toolbar flex items-center gap-2 border-b sui-hairline px-3 py-2">
-          <button
-            type="button"
-            aria-label="Back"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-30"
-            onClick={back}
-            disabled={historyIndex <= 0}
-          >
-            <ChevronLeft aria-hidden className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Forward"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-30"
-            onClick={forward}
-            disabled={historyIndex >= history.length - 1}
-          >
-            <ChevronRight aria-hidden className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Home"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            onClick={() => goTo(homePath)}
-          >
-            <Home aria-hidden className="size-4" />
-          </button>
-          <Breadcrumbs
-            path={path}
-            onNavigate={goTo}
-            onMove={(source, dest) => void handleMove(source, dest)}
-          />
-          <label className="relative shrink-0">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2 top-1.5 size-3.5 sui-muted"
-            />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="sui-input w-36 rounded-md py-1 pl-7 pr-2 text-[12px] outline-none focus:ring-2 focus:ring-sky-400"
-            />
-          </label>
-        </div>
+      <FilesSidebar
+        path={path}
+        homePath={homeDir ?? HOME_PATH}
+        serverName={serverName}
+        onNavigate={goTo}
+      />
+      <div className="bg-[var(--finder-content)] flex min-h-0 min-w-0 flex-1 flex-col">
         <FileToolbar
-          selectedEntries={selectedEntries}
-          totalCount={visible.length}
+          title={title}
+          canGoBack={historyIndex > 0}
+          canGoForward={historyIndex < history.length - 1}
+          onBack={back}
+          onForward={forward}
+          view={view}
+          onViewChange={changeView}
+          selectedCount={selectedEntries.length}
+          query={query}
+          onQueryChange={setQuery}
+          onUploadClick={pickUpload}
+          onNewFolder={newFolder}
+          onNewFile={newFile}
           onOpen={openSelected}
           onDownload={() => void onDownloadSelected(selectedEntries)}
-          onUploadClick={() => uploadRef.current?.click()}
           onRename={() =>
             singleSelectedEntry &&
             setDialog({
@@ -666,6 +682,8 @@ export function FilesApp() {
           onDelete={() => selectedEntries.length > 0 && setPendingDelete(selectedEntries)}
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
+          onCopyPath={() => copySelectionPaths(path)}
+          onTerminalHere={() => openTerminalHere(null)}
         />
         <input
           ref={uploadRef}
@@ -676,39 +694,15 @@ export function FilesApp() {
             event.target.value = "";
           }}
         />
-        <div className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
-          <button
-            type="button"
-            className={toolbarClass}
-            onClick={() => setDialog({ type: "file", value: "" })}
-          >
-            New file
-          </button>
-          <button
-            type="button"
-            className={toolbarClass}
-            onClick={() => setDialog({ type: "dir", value: "" })}
-          >
-            New folder
-          </button>
-        </div>
         {dialog ? (
           <form
-            className="flex items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]"
+            className="sui-finder-sheet flex items-center gap-2 px-4 py-2 text-[12px]"
             onSubmit={(event) => {
               event.preventDefault();
               void submitDialog();
             }}
           >
-            <label className="text-neutral-500">
-              {dialog.type === "dir"
-                ? "Folder name"
-                : dialog.type === "file"
-                  ? "File name"
-                  : dialog.type === "extract"
-                    ? "Extract to"
-                    : "Rename"}
-            </label>
+            <label className="sui-finder-muted">{DIALOG_TEXT[dialog.type].label}</label>
             <input
               autoFocus
               className="sui-input min-w-0 flex-1 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
@@ -716,11 +710,7 @@ export function FilesApp() {
               onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
             />
             <button type="submit" className={toolbarClass}>
-              {dialog.type === "rename"
-                ? "Rename"
-                : dialog.type === "extract"
-                  ? "Extract"
-                  : "Create"}
+              {DIALOG_TEXT[dialog.type].submit}
             </button>
             <button type="button" className={toolbarClass} onClick={() => setDialog(null)}>
               Cancel
@@ -728,25 +718,11 @@ export function FilesApp() {
           </form>
         ) : null}
         {downloadStatus ? (
-          <div
-            className={`flex items-center justify-between border-b px-4 py-2 text-[12px] ${
-              downloadStatus.type === "error"
-                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-300"
-                : downloadStatus.type === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300"
-                  : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-300"
-            }`}
-            role="status"
-          >
-            <span className="min-w-0 flex-1">{downloadStatus.message}</span>
-            <button
-              type="button"
-              className="ml-2 text-xs font-semibold opacity-70 hover:opacity-100"
-              onClick={() => setDownloadStatus(null)}
-            >
-              Dismiss
-            </button>
-          </div>
+          <StatusBanner
+            tone={downloadStatus.type}
+            message={downloadStatus.message}
+            onDismiss={() => setDownloadStatus(null)}
+          />
         ) : null}
         {extractJob ? (
           <ExtractStatus
@@ -771,7 +747,7 @@ export function FilesApp() {
         ) : null}
         {pendingDelete && pendingDelete.length > 0 ? (
           <div
-            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+            className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-[12px] ${BANNER_TONES.warning}`}
             role="alertdialog"
             aria-labelledby="delete-file-title"
           >
@@ -819,7 +795,7 @@ export function FilesApp() {
         ) : null}
         {pendingMove ? (
           <div
-            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950"
+            className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-[12px] ${BANNER_TONES.warning}`}
             role="alertdialog"
             aria-labelledby="move-conflict-title"
           >
@@ -847,46 +823,25 @@ export function FilesApp() {
           </div>
         ) : null}
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <FileList
-            path={path}
-            entries={visible}
-            selectedPaths={selectedPaths}
-            onSelect={handleRowSelect}
-            onToggleSelect={toggleSelect}
-            onSelectRange={selectRange}
-            onSelectionChange={handleSelectionChange}
-            onSelectAll={selectAll}
-            onClearSelection={clearSelection}
-            onOpen={openEntry}
-            onParent={() => path !== "/" && goTo(parentPath(path))}
-            onContextMenu={openContextMenu}
-            onMove={(source, dest, type) => void handleMove(source, dest, type)}
-          />
+          {view === "icons" ? (
+            <FileGrid {...viewProps} />
+          ) : (
+            <FileList {...viewProps} onParent={() => path !== "/" && goTo(parentPath(path))} />
+          )}
+          {!loading && !error && visible.length === 0 ? (
+            <p className="sui-finder-muted pointer-events-none absolute inset-x-0 top-1/3 text-center text-[13px]">
+              {query.trim() ? `No items match “${query.trim()}”` : "This folder is empty"}
+            </p>
+          ) : null}
           {loading ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--app-bg)]/60 text-sm text-neutral-400">
+            <div className="sui-finder-muted pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--finder-content)]/60 text-[13px]">
               Loading files…
             </div>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center justify-between border-t sui-hairline px-4 py-1.5 text-[11px] sui-muted">
-          <span>
-            {selectedEntries.length > 0 ? (
-              <>
-                <span className="font-medium text-sky-600 dark:text-sky-400">
-                  {selectedEntries.length} {selectedEntries.length === 1 ? "item" : "items"}{" "}
-                  selected
-                </span>
-                {selectedTotalSize > 0 ? ` (${formatSize(selectedTotalSize)})` : ""}
-                <span className="mx-1.5 text-neutral-300 dark:text-neutral-600">|</span>
-                <span>
-                  {visible.length} {visible.length === 1 ? "item" : "items"} total
-                </span>
-              </>
-            ) : (
-              `${visible.length} ${visible.length === 1 ? "item" : "items"}`
-            )}
-          </span>
-          <span>{formatSize(totalSize(visible))}</span>
+        <div className="border-t border-[var(--finder-hairline)] bg-[var(--finder-toolbar)] flex h-[28px] shrink-0 items-center gap-3 px-3 text-[11.5px]">
+          <Breadcrumbs path={path} rootLabel={serverName} onNavigate={goTo} />
+          <span className="sui-finder-muted shrink-0">{statusText}</span>
         </div>
       </div>
       {menu ? (
@@ -924,15 +879,12 @@ export function FilesApp() {
               setPendingDelete([menu.entry]);
             }
           }}
-          onCopyPath={() => {
-            if (selectedEntries.length > 1) {
-              copyPath(selectedEntries.map((e) => e.path).join("\n"));
-            } else {
-              copyPath(menu.entry?.path || path);
-            }
-          }}
+          onCopyPath={() => copySelectionPaths(menu.entry?.path || path)}
           onInfo={() => openInfo(menu.entry)}
           onTerminalHere={() => openTerminalHere(menu.entry)}
+          onNewFolder={newFolder}
+          onNewFile={newFile}
+          onUpload={pickUpload}
           onClearSelection={clearSelection}
           onClose={() => setMenu(null)}
         />

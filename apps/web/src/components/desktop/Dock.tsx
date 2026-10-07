@@ -162,6 +162,9 @@ export function Dock({ autoHideOverride = false }: DockProps) {
         tooltip.dataset.show = "true";
         const center = layout.centers[hover]! - layout.total / 2;
         tooltip.style.setProperty("--dock-tooltip-x", `${center}px`);
+        // Float above the magnified icon (it grows upward and lifts), as on macOS.
+        const rise = (layout.lifts[hover] ?? 0) + (hoverScale - 1) * iconSize;
+        tooltip.style.setProperty("--dock-tooltip-y", `${-rise}px`);
       } else {
         tooltip.dataset.show = "false";
       }
