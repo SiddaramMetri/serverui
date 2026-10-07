@@ -9,6 +9,8 @@ type FileContextMenuProps = {
   selectedEntries?: FileEntry[];
   onOpen: () => void;
   onDownload?: () => void;
+  onExtractHere?: () => void;
+  onExtractTo?: () => void;
   onDelete?: () => void;
   onCopyPath: () => void;
   onInfo: () => void;
@@ -24,6 +26,8 @@ export function FileContextMenu({
   selectedEntries = [],
   onOpen,
   onDownload,
+  onExtractHere,
+  onExtractTo,
   onDelete,
   onCopyPath,
   onInfo,
@@ -101,6 +105,24 @@ export function FileContextMenu({
               }}
             />
           )}
+          {onExtractHere ? (
+            <MenuItem
+              label="Extract Here"
+              onSelect={() => {
+                onExtractHere();
+                onClose();
+              }}
+            />
+          ) : null}
+          {onExtractTo ? (
+            <MenuItem
+              label="Extract To…"
+              onSelect={() => {
+                onExtractTo();
+                onClose();
+              }}
+            />
+          ) : null}
           {entry && onDelete ? (
             <MenuItem
               label="Delete"

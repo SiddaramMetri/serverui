@@ -4,19 +4,28 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
+  archiveStem,
   baseName,
   buildMoveDestination,
+  cancelExtract,
   createDirectory,
   createFile,
   deleteFile,
   downloadUrl,
+  getExtractJob,
+  isExtractFinished,
+  isExtractable,
   isValidMove,
   joinPath,
   listFiles,
   parentPath,
   renameFile,
+  resolveExtract,
+  startExtract,
   suggestUniqueName,
   uploadFile,
+  type ConflictPolicy,
+  type ExtractJob,
   type FileEntry,
 } from "@/src/lib/api/files";
 import { useWindowManager } from "@/src/components/window/window-context";
@@ -31,7 +40,10 @@ import { FileToolbar, toolbarClass } from "@/src/components/apps/files/FileToolb
 type Dialog =
   | { type: "file"; value: string }
   | { type: "dir"; value: string }
-  | { type: "rename"; value: string; from: string };
+  | { type: "rename"; value: string; from: string }
+  | { type: "extract"; value: string; archive: FileEntry };
+
+const EXTRACT_POLL_MS = 750;
 
 type MenuState = {
   x: number;
@@ -74,7 +86,13 @@ export function FilesApp() {
   } | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // The job as started; ExtractStatus owns its live progress so polling only
+  // re-renders the banner, not every row of the folder.
+  const [extractJob, setExtractJob] = useState<ExtractJob | null>(null);
+  const [extractBusy, setExtractBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  // The folder on screen, read when a background extraction finishes.
+  const pathRef = useRef(path);
   const serverId = selectedServer?.id || "";
   const homePath =
     selectedServer?.username || server?.username
@@ -100,6 +118,10 @@ export function FilesApp() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    pathRef.current = path;
+  }, [path]);
 
   useEffect(() => {
     if (!serverId) return;
@@ -269,6 +291,12 @@ export function FilesApp() {
   async function submitDialog() {
     if (!dialog || !dialog.value.trim()) return;
     const name = dialog.value.trim();
+    if (dialog.type === "extract") {
+      const destination = name.startsWith("/") ? name : joinPath(path, name);
+      setDialog(null);
+      await onExtract(dialog.archive, "to", destination);
+      return;
+    }
     try {
       if (dialog.type === "file") {
         await createFile(serverId, joinPath(path, name));
@@ -446,6 +474,33 @@ export function FilesApp() {
     }
   }
 
+  async function onExtract(entry: FileEntry, mode: "here" | "to", destination?: string) {
+    setError(null);
+    try {
+      const job = await startExtract(serverId, entry.path, mode, destination);
+      setExtractJob(job);
+      setExtractBusy(!isExtractFinished(job.state));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to extract ${entry.name}`);
+    }
+  }
+
+  async function showExtracted(job: ExtractJob) {
+    const here = pathRef.current;
+    const prefix = here === "/" ? "/" : `${here}/`;
+    if (job.destination !== here && !job.destination.startsWith(prefix)) return;
+    await load(here);
+    const inView = job.extracted.filter((item) => parentPath(item) === here);
+    if (inView.length > 0) {
+      setSelectedPaths(new Set(inView));
+      setLastSelectedPath(inView[inView.length - 1]);
+    }
+  }
+  function onExtractFinished(job: ExtractJob) {
+    setExtractBusy(false);
+    if (job.state === "done") void showExtracted(job);
+  }
+
   function openContextMenu(event: MouseEvent, entry: FileEntry | null) {
     event.preventDefault();
     event.stopPropagation();
@@ -456,7 +511,7 @@ export function FilesApp() {
       }
     }
     const width = 210;
-    const height = 180;
+    const height = 240;
     setMenu({
       x: Math.min(event.clientX, window.innerWidth - width - 8),
       y: Math.min(event.clientY, window.innerHeight - height - 8),
@@ -486,6 +541,12 @@ export function FilesApp() {
     const cwd = entry?.type === "dir" ? entry.path : path;
     openWindow("terminal", { cwd });
   }
+
+  // One extraction at a time per window; the menu hides Extract while busy.
+  const extractTarget =
+    menu?.entry?.type === "file" && isExtractable(menu.entry.name) && !extractBusy
+      ? menu.entry
+      : null;
 
   const places = [
     { label: "Root", path: "/" },
@@ -644,7 +705,9 @@ export function FilesApp() {
                 ? "Folder name"
                 : dialog.type === "file"
                   ? "File name"
-                  : "Rename"}
+                  : dialog.type === "extract"
+                    ? "Extract to"
+                    : "Rename"}
             </label>
             <input
               autoFocus
@@ -653,7 +716,11 @@ export function FilesApp() {
               onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
             />
             <button type="submit" className={toolbarClass}>
-              {dialog.type === "rename" ? "Rename" : "Create"}
+              {dialog.type === "rename"
+                ? "Rename"
+                : dialog.type === "extract"
+                  ? "Extract"
+                  : "Create"}
             </button>
             <button type="button" className={toolbarClass} onClick={() => setDialog(null)}>
               Cancel
@@ -680,6 +747,19 @@ export function FilesApp() {
               Dismiss
             </button>
           </div>
+        ) : null}
+        {extractJob ? (
+          <ExtractStatus
+            key={extractJob.id}
+            serverId={serverId}
+            initial={extractJob}
+            onFinished={onExtractFinished}
+            onError={setError}
+            onDismiss={() => {
+              setExtractJob(null);
+              setExtractBusy(false);
+            }}
+          />
         ) : null}
         {error ? (
           <p
@@ -826,6 +906,17 @@ export function FilesApp() {
               void onDownloadSelected([menu.entry]);
             }
           }}
+          onExtractHere={extractTarget ? () => void onExtract(extractTarget, "here") : undefined}
+          onExtractTo={
+            extractTarget
+              ? () =>
+                  setDialog({
+                    type: "extract",
+                    value: joinPath(path, archiveStem(extractTarget.name)),
+                    archive: extractTarget,
+                  })
+              : undefined
+          }
           onDelete={() => {
             if (selectedEntries.length > 0) {
               setPendingDelete(selectedEntries);
@@ -846,6 +937,209 @@ export function FilesApp() {
           onClose={() => setMenu(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Live extraction banner: polls its job and owns the conflict / cancel actions. */
+function ExtractStatus({
+  serverId,
+  initial,
+  onFinished,
+  onError,
+  onDismiss,
+}: {
+  serverId: string;
+  initial: ExtractJob;
+  onFinished: (job: ExtractJob) => void;
+  onError: (message: string) => void;
+  onDismiss: () => void;
+}) {
+  const [job, setJob] = useState(initial);
+  // A cancel finishes asynchronously, so keep polling past a pending decision.
+  const [cancelling, setCancelling] = useState(false);
+  const onFinishedRef = useRef(onFinished);
+  const name = baseName(job.archive);
+
+  useEffect(() => {
+    onFinishedRef.current = onFinished;
+  });
+
+  useEffect(() => {
+    if (isExtractFinished(job.state)) return;
+    if (job.state === "awaiting_decision" && !cancelling) return;
+    let stopped = false;
+    const timer = window.setTimeout(async () => {
+      let next: ExtractJob;
+      try {
+        next = await getExtractJob(serverId, job.id);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          if (!stopped) setJob((current) => ({ ...current })); // retry next tick
+          return;
+        }
+        next = { ...job, state: "failed", error: "extraction status is no longer available" };
+      }
+      if (stopped) return;
+      setJob(next);
+      if (isExtractFinished(next.state)) onFinishedRef.current(next);
+    }, EXTRACT_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [job, cancelling, serverId]);
+
+  async function onResolve(policy: ConflictPolicy) {
+    try {
+      setJob(await resolveExtract(serverId, job.id, policy));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "unable to continue extraction");
+    }
+  }
+
+  async function onCancel() {
+    setCancelling(true);
+    try {
+      setJob(await cancelExtract(serverId, job.id));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "unable to cancel extraction");
+    }
+  }
+
+  if (job.state === "awaiting_decision" && !cancelling) {
+    const shown = job.conflicts.slice(0, 3).map((item) => `“${item}”`);
+    const more = job.conflicts.length - shown.length;
+    return (
+      <div
+        className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-[12px] ${BANNER_TONES.warning}`}
+        role="alertdialog"
+        aria-labelledby="extract-conflict-title"
+      >
+        <p id="extract-conflict-title" className="min-w-0 flex-1">
+          {job.conflicts.length === 1 ? (
+            <>
+              <span className="font-medium">{shown[0]}</span> already exists in {job.destination}.
+            </>
+          ) : (
+            <>
+              <span className="font-medium">{job.conflicts.length} items</span> already exist in{" "}
+              {job.destination}: {shown.join(", ")}
+              {more > 0 ? ` and ${more} more` : ""}.
+            </>
+          )}
+        </p>
+        <button type="button" className={toolbarClass} onClick={() => void onCancel()}>
+          Cancel
+        </button>
+        <button type="button" className={toolbarClass} onClick={() => void onResolve("keep-both")}>
+          Keep both
+        </button>
+        <button
+          type="button"
+          className="rounded-md bg-red-600 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-red-700"
+          onClick={() => void onResolve("replace")}
+        >
+          Replace
+        </button>
+      </div>
+    );
+  }
+
+  if (!isExtractFinished(job.state)) {
+    const percent = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+    return (
+      <div
+        className={`flex items-center gap-3 border-b px-4 py-2 text-[12px] ${BANNER_TONES.info}`}
+        role="status"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate">
+            {cancelling
+              ? `Cancelling “${name}”…`
+              : job.state === "scanning"
+                ? `Checking “${name}”…`
+                : `Extracting “${name}”… ${job.done} of ${job.total} (${percent}%)`}
+          </p>
+          {job.state === "extracting" ? (
+            <div
+              className="mt-1 h-1 overflow-hidden rounded-full bg-sky-200 dark:bg-sky-900"
+              role="progressbar"
+              aria-label="Extraction progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <div
+                className="h-full bg-sky-500 transition-[width]"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className={toolbarClass}
+          disabled={cancelling}
+          onClick={() => void onCancel()}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  const message =
+    job.state === "done"
+      ? job.extracted.length === 1
+        ? `Extracted “${name}” to ${job.extracted[0]}.`
+        : `Extracted “${name}” into ${job.destination}.`
+      : job.state === "failed"
+        ? `Couldn’t extract “${name}”: ${job.error || "extraction failed"}.`
+        : `Extraction of “${name}” was cancelled. Nothing was changed.`;
+  return (
+    <StatusBanner
+      tone={job.state === "done" ? "success" : job.state === "failed" ? "error" : "neutral"}
+      message={message}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+const BANNER_TONES = {
+  info: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-300",
+  success:
+    "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300",
+  error:
+    "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-300",
+  neutral:
+    "border-neutral-200 bg-neutral-50 text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-300",
+  warning:
+    "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200",
+};
+
+function StatusBanner({
+  tone,
+  message,
+  onDismiss,
+}: {
+  tone: Exclude<keyof typeof BANNER_TONES, "warning">;
+  message: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between border-b px-4 py-2 text-[12px] ${BANNER_TONES[tone]}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      <span className="min-w-0 flex-1">{message}</span>
+      <button
+        type="button"
+        className="ml-2 text-xs font-semibold opacity-70 hover:opacity-100"
+        onClick={onDismiss}
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

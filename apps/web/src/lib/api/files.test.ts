@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  archiveStem,
   baseName,
   buildMoveDestination,
+  isExtractable,
   isValidMove,
   joinPath,
   parentPath,
@@ -42,5 +44,32 @@ describe("file path helpers", () => {
   it("suggests a unique name when a conflict exists", () => {
     expect(suggestUniqueName(["file.txt"], "file.txt")).toBe("file (1).txt");
     expect(suggestUniqueName(["a", "a (1)"], "a")).toBe("a (2)");
+  });
+});
+
+describe("archive helpers", () => {
+  it("recognises the archive formats the server can extract", () => {
+    for (const name of [
+      "site.zip",
+      "SITE.ZIP",
+      "backup.tar",
+      "backup.tar.gz",
+      "backup.tgz",
+      "backup.tar.bz2",
+      "backup.tbz2",
+      "backup.tar.xz",
+      "photos.7z",
+    ]) {
+      expect(isExtractable(name)).toBe(true);
+    }
+    for (const name of ["notes.txt", "log.gz", "data.rar", ".zip"]) {
+      expect(isExtractable(name)).toBe(false);
+    }
+  });
+
+  it("strips the archive suffix for default folder names", () => {
+    expect(archiveStem("backup.tar.gz")).toBe("backup");
+    expect(archiveStem("v1.2.release.zip")).toBe("v1.2.release");
+    expect(archiveStem("notes.txt")).toBe("notes.txt");
   });
 });

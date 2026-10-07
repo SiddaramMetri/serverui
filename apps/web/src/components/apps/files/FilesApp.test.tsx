@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesApp } from "@/src/components/apps/files/FilesApp";
 import { WindowManagerProvider } from "@/src/components/window/window-context";
-import type { FileEntry } from "@/src/lib/api/files";
+import type { ExtractJob, FileEntry } from "@/src/lib/api/files";
 
 const mockEntries: FileEntry[] = [
   {
@@ -32,9 +32,15 @@ const mockEntries: FileEntry[] = [
   },
 ];
 
-const { listFilesMock, deleteFileMock } = vi.hoisted(() => ({
+const { listFilesMock, deleteFileMock, mocks } = vi.hoisted(() => ({
   listFilesMock: vi.fn(),
   deleteFileMock: vi.fn(),
+  mocks: {
+    startExtract: vi.fn(),
+    getExtractJob: vi.fn(),
+    resolveExtract: vi.fn(),
+    cancelExtract: vi.fn(),
+  },
 }));
 
 vi.mock("@/src/lib/api/files", async () => {
@@ -43,6 +49,10 @@ vi.mock("@/src/lib/api/files", async () => {
     ...actual,
     listFiles: (...args: unknown[]) => listFilesMock(...args),
     deleteFile: (...args: unknown[]) => deleteFileMock(...args),
+    startExtract: (...args: unknown[]) => mocks.startExtract(...args),
+    getExtractJob: (...args: unknown[]) => mocks.getExtractJob(...args),
+    resolveExtract: (...args: unknown[]) => mocks.resolveExtract(...args),
+    cancelExtract: (...args: unknown[]) => mocks.cancelExtract(...args),
     downloadUrl: vi.fn((serverId: string, path: string) => `/mock/download?path=${path}`),
   };
 });
@@ -212,6 +222,184 @@ describe("FilesApp multi-select", () => {
     expect(
       await screen.findByText(
         /Folder “gamma_folder” cannot be downloaded directly with the current download architecture\./i,
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+const archiveEntries: FileEntry[] = [
+  {
+    name: "notes.txt",
+    path: "/notes.txt",
+    type: "file",
+    size: 10,
+    mode: "-rw-r--r--",
+    modified: "2026-10-01T10:00:00Z",
+  },
+  {
+    name: "site.zip",
+    path: "/site.zip",
+    type: "file",
+    size: 2048,
+    mode: "-rw-r--r--",
+    modified: "2026-10-01T10:00:00Z",
+  },
+];
+
+function job(overrides: Partial<ExtractJob>): ExtractJob {
+  return {
+    id: "job-1",
+    state: "scanning",
+    archive: "/site.zip",
+    destination: "/",
+    done: 0,
+    total: 0,
+    conflicts: [],
+    extracted: [],
+    ...overrides,
+  };
+}
+
+const POLL_WAIT = { timeout: 3000 };
+
+async function renderFiles() {
+  render(
+    <WindowManagerProvider>
+      <FilesApp />
+    </WindowManagerProvider>,
+  );
+  expect(await screen.findByText("site.zip")).toBeInTheDocument();
+}
+
+function openMenu(name: string) {
+  fireEvent.contextMenu(screen.getByText(name).closest("tr")!, { clientX: 20, clientY: 20 });
+}
+
+describe("FilesApp archive extraction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listFilesMock.mockResolvedValue({ path: "/", entries: archiveEntries });
+  });
+
+  it("offers extraction only for supported archives", async () => {
+    await renderFiles();
+
+    openMenu("notes.txt");
+    expect(screen.queryByRole("menuitem", { name: "Extract Here" })).not.toBeInTheDocument();
+
+    openMenu("site.zip");
+    expect(screen.getByRole("menuitem", { name: "Extract Here" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Extract To…" })).toBeInTheDocument();
+  });
+
+  it("extracts here, refreshes the folder, and selects the result", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", done: 3, total: 3, extracted: ["/site"] }),
+    );
+    await renderFiles();
+    const extracted: FileEntry = { ...archiveEntries[0], name: "site", path: "/site", type: "dir" };
+    listFilesMock.mockResolvedValue({ path: "/", entries: [...archiveEntries, extracted] });
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(mocks.startExtract).toHaveBeenCalledWith("srv-1", "/site.zip", "here", undefined);
+    expect(await screen.findByText("Checking “site.zip”…")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Extracted “site.zip” to /site.", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("site").closest("tr")).toHaveClass("sui-selected"));
+  });
+
+  it("extracts to a chosen folder", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning", destination: "/srv/out" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", destination: "/srv/out", extracted: ["/srv/out/site"] }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract To…" }));
+    const input = screen.getByDisplayValue("/site");
+    await user.clear(input);
+    await user.type(input, "/srv/out");
+    await user.click(screen.getByRole("button", { name: "Extract" }));
+
+    expect(mocks.startExtract).toHaveBeenCalledWith("srv-1", "/site.zip", "to", "/srv/out");
+    expect(
+      await screen.findByText("Extracted “site.zip” to /srv/out/site.", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+  });
+
+  it("asks before overwriting and continues with keep both", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(
+      job({ state: "awaiting_decision", total: 2, conflicts: ["site"] }),
+    );
+    mocks.resolveExtract.mockResolvedValue(job({ state: "extracting", total: 2 }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", done: 2, total: 2, extracted: ["/site (1)"] }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    const prompt = await screen.findByRole("alertdialog");
+    expect(prompt).toHaveTextContent("“site” already exists in /.");
+    await user.click(screen.getByRole("button", { name: "Keep both" }));
+
+    expect(mocks.resolveExtract).toHaveBeenCalledWith("srv-1", "job-1", "keep-both");
+    expect(
+      await screen.findByText("Extracted “site.zip” to /site (1).", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+  });
+
+  it("shows progress and lets the user cancel", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    mocks.getExtractJob.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    mocks.cancelExtract.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(await screen.findByText("Extracting “site.zip”… 1 of 4 (25%)")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
+
+    mocks.getExtractJob.mockResolvedValue(job({ state: "cancelled", done: 1, total: 4 }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(mocks.cancelExtract).toHaveBeenCalledWith("srv-1", "job-1");
+    expect(
+      await screen.findByText(
+        "Extraction of “site.zip” was cancelled. Nothing was changed.",
+        {},
+        POLL_WAIT,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("reports extraction failures", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "failed", error: "archive is corrupted or is not a valid ZIP archive" }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(
+      await screen.findByText(
+        "Couldn’t extract “site.zip”: archive is corrupted or is not a valid ZIP archive.",
+        {},
+        POLL_WAIT,
       ),
     ).toBeInTheDocument();
   });
