@@ -1,97 +1,108 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { FileEntry } from "@/src/lib/api/files";
+import { isArchive, type FileEntry } from "@/src/lib/api/files";
 import { PageLayer } from "@/src/components/window/window-chrome";
+
+export type FileMenuActions = {
+  onOpen: () => void;
+  onTerminalHere: () => void;
+  onCopyPath: () => void;
+  onInfo: () => void;
+  onDownload: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
+  onCompress: () => void;
+  onExtractHere: () => void;
+  onExtractTo: () => void;
+  onNewFolder: () => void;
+  onNewFile: () => void;
+  onUpload: () => void;
+};
+
+type FileContextMenuProps = FileMenuActions & {
+  x: number;
+  y: number;
+  entry: FileEntry | null;
+  selectedEntries?: FileEntry[];
+  canPaste: boolean;
+  /** True while an extraction runs in this window; Extract items are disabled. */
+  extracting?: boolean;
+  onClose: () => void;
+};
 
 export type MenuAction = {
   label: string;
-  onSelect: () => void;
+  run: () => void;
   disabled?: boolean;
   destructive?: boolean;
 };
 
 export type MenuEntry = MenuAction | "separator";
 
-type FileContextMenuProps = {
-  x: number;
-  y: number;
-  entry: FileEntry | null;
-  selectedEntries?: FileEntry[];
-  onOpen: () => void;
-  onDownload?: () => void;
-  onExtractHere?: () => void;
-  onExtractTo?: () => void;
-  onDelete?: () => void;
-  onCopyPath: () => void;
-  onInfo: () => void;
-  onTerminalHere: () => void;
-  onNewFolder?: () => void;
-  onNewFile?: () => void;
-  onUpload?: () => void;
-  onClearSelection?: () => void;
-  onClose: () => void;
-};
-
-export function FileContextMenu({
-  x,
-  y,
+export function menuItems({
   entry,
   selectedEntries = [],
-  onOpen,
-  onDownload,
-  onExtractHere,
-  onExtractTo,
-  onDelete,
-  onCopyPath,
-  onInfo,
-  onTerminalHere,
-  onNewFolder,
-  onNewFile,
-  onUpload,
-  onClearSelection,
-  onClose,
-}: FileContextMenuProps) {
-  const count = selectedEntries.length;
-  const isDir = !entry || entry.type === "dir";
-  const action = (label: string, onSelect?: () => void): MenuAction[] =>
-    onSelect ? [{ label, onSelect }] : [];
+  canPaste,
+  extracting = false,
+  ...a
+}: Omit<FileContextMenuProps, "x" | "y" | "onClose">): MenuEntry[] {
+  if (!entry) {
+    return [
+      { label: "Open Terminal", run: a.onTerminalHere },
+      { label: "Paste", run: a.onPaste, disabled: !canPaste },
+      "separator",
+      { label: "New Folder", run: a.onNewFolder },
+      { label: "New File", run: a.onNewFile },
+      { label: "Upload…", run: a.onUpload },
+    ];
+  }
 
-  const actions: MenuEntry[] =
-    count > 1
+  if (selectedEntries.length > 1) {
+    const onlyFiles = selectedEntries.every((item) => item.type === "file");
+    const n = selectedEntries.length;
+    return [
+      { label: `Copy (${n} items)`, run: a.onCopy },
+      { label: `Cut (${n} items)`, run: a.onCut },
+      { label: `Delete (${n} items)`, run: a.onDelete },
+      "separator",
+      { label: `Compress (${n} items)`, run: a.onCompress },
+      ...(onlyFiles ? [{ label: `Download (${n} items)`, run: a.onDownload }] : []),
+    ];
+  }
+
+  const dir = entry.type === "dir";
+  const archive = isArchive(entry);
+  return [
+    { label: "Open", run: a.onOpen },
+    ...(dir ? [{ label: "Open Terminal", run: a.onTerminalHere }] : []),
+    { label: "Copy Path", run: a.onCopyPath },
+    { label: "Details", run: a.onInfo },
+    ...(dir ? [] : [{ label: "Download", run: a.onDownload }]),
+    "separator",
+    { label: "Rename", run: a.onRename },
+    { label: "Delete", run: a.onDelete },
+    "separator",
+    { label: "Copy", run: a.onCopy },
+    { label: "Cut", run: a.onCut },
+    ...(archive
       ? [
-          ...action(`Download (${count} items)`, onDownload),
-          ...action(`Delete (${count} items)`, onDelete),
-          "separator",
-          ...action("Copy Paths", onCopyPath),
-          ...action("Clear Selection", onClearSelection),
+          { label: "Extract Here", run: a.onExtractHere, disabled: extracting },
+          { label: "Extract To…", run: a.onExtractTo, disabled: extracting },
         ]
-      : [
-          ...(!entry
-            ? [
-                ...action("New Folder", onNewFolder),
-                ...action("New File", onNewFile),
-                ...action("Upload…", onUpload),
-                "separator" as const,
-              ]
-            : []),
-          ...action("Open", onOpen),
-          ...(isDir
-            ? action("Open Terminal Here", onTerminalHere)
-            : action("Download", onDownload)),
-          ...action("Extract Here", onExtractHere),
-          ...action("Extract To…", onExtractTo),
-          ...(entry ? action("Delete", onDelete) : []),
-          "separator",
-          ...action("Copy Path", onCopyPath),
-          ...(entry ? action(isDir ? "Folder Information" : "File Information", onInfo) : []),
-        ];
+      : [{ label: "Compress", run: a.onCompress }]),
+  ];
+}
 
+export function FileContextMenu({ x, y, onClose, ...props }: FileContextMenuProps) {
   return (
     <PageLayer>
       <MenuList
         label="File actions"
-        actions={actions}
+        actions={menuItems(props)}
         onClose={onClose}
         className="fixed"
         style={{ left: x, top: y }}
@@ -134,7 +145,7 @@ export function MenuList({
               item.destructive ? "text-red-500" : ""
             }`}
             onClick={() => {
-              item.onSelect();
+              item.run();
               onClose();
             }}
           >

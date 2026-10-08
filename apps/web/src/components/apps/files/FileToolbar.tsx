@@ -18,6 +18,10 @@ import { PageLayer, useTitlebarProps } from "@/src/components/window/window-chro
 
 export type FilesView = "icons" | "list";
 
+/** Small text buttons in the Files sheets, banners and download panel. */
+export const toolbarClass =
+  "sui-hover inline-flex items-center gap-1 rounded-md px-2 py-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-40";
+
 /** Finder-style unified toolbar; doubles as the window's drag region. */
 export function FileToolbar({
   title,
@@ -69,20 +73,20 @@ export function FileToolbar({
   const single = selectedCount === 1;
 
   const menu: MenuEntry[] = [
-    { label: "New Folder", onSelect: onNewFolder },
-    { label: "New File", onSelect: onNewFile },
-    { label: "Upload…", onSelect: onUploadClick },
+    { label: "New Folder", run: onNewFolder },
+    { label: "New File", run: onNewFile },
+    { label: "Upload…", run: onUploadClick },
     "separator",
-    { label: "Open", onSelect: onOpen, disabled: !single },
-    { label: "Download", onSelect: onDownload, disabled: none },
-    { label: "Rename", onSelect: onRename, disabled: !single },
-    { label: "Delete", onSelect: onDelete, disabled: none, destructive: true },
+    { label: "Open", run: onOpen, disabled: !single },
+    { label: "Download", run: onDownload, disabled: none },
+    { label: "Rename", run: onRename, disabled: !single },
+    { label: "Delete", run: onDelete, disabled: none, destructive: true },
     "separator",
     none
-      ? { label: "Select All", onSelect: onSelectAll }
-      : { label: "Clear Selection", onSelect: onClearSelection },
-    { label: "Copy Path", onSelect: onCopyPath },
-    { label: "Open Terminal Here", onSelect: onTerminalHere },
+      ? { label: "Select All", run: onSelectAll }
+      : { label: "Clear Selection", run: onClearSelection },
+    { label: "Copy Path", run: onCopyPath },
+    { label: "Open Terminal Here", run: onTerminalHere },
   ];
 
   return (

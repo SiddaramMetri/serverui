@@ -1,7 +1,7 @@
 "use client";
 
 import { fileExtension, getFileType, type FileType } from "@/src/lib/files/file-type";
-import { extractableSuffix, type FileEntry } from "@/src/lib/api/files";
+import { archiveSuffix, type FileEntry } from "@/src/lib/api/files";
 
 type IconEntry = Pick<FileEntry, "name" | "type" | "mime">;
 
@@ -167,7 +167,7 @@ export function kindLabel(entry: IconEntry) {
 }
 
 function archiveKind(name: string, ext: string) {
-  const suffix = extractableSuffix(name) ?? "";
+  const suffix = archiveSuffix(name);
   if (suffix === ".zip") return "ZIP archive";
   if (suffix === ".7z") return "7-Zip archive";
   if (suffix === ".tar") return "Tar archive";

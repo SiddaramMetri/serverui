@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/files/create", s.createFile)
 	mux.HandleFunc("POST /api/files/mkdir", s.mkdir)
 	mux.HandleFunc("POST /api/files/rename", s.rename)
+	mux.HandleFunc("POST /api/files/copy", s.transfer(s.files.Copy))
+	mux.HandleFunc("POST /api/files/move", s.transfer(s.files.Move))
+	mux.HandleFunc("POST /api/files/compress", s.compress)
 	mux.HandleFunc("POST /api/files/upload", s.upload)
 	mux.HandleFunc("DELETE /api/files", s.deleteFile)
 	mux.HandleFunc("POST /api/files/extract", s.startExtract)
@@ -625,6 +629,59 @@ func (s *Server) mkdir(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type transferFunc func(ctx context.Context, serverID, from, to string, overwrite bool) error
+
+func (s *Server) transfer(op transferFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			ServerID  string `json:"serverId"`
+			From      string `json:"from"`
+			To        string `json:"to"`
+			Overwrite bool   `json:"overwrite"`
+		}
+		if err := decodeJSON(w, r, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			return
+		}
+		id, err := bodyOrQueryServerID(r, body.ServerID)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := op(r.Context(), id, body.From, body.To, body.Overwrite); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) compress(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerID  string   `json:"serverId"`
+		Dir       string   `json:"dir"`
+		Names     []string `json:"names"`
+		Archive   string   `json:"archive"`
+		Format    string   `json:"format"`
+		Overwrite bool     `json:"overwrite"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	id, err := bodyOrQueryServerID(r, body.ServerID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	archive, err := s.files.Compress(r.Context(), id, body.Dir, body.Names, body.Archive, body.Format, body.Overwrite)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "path": archive})
+}
+
 func (s *Server) rename(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ServerID string `json:"serverId"`
@@ -919,6 +976,19 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, servers.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "server not found"})
+		return
+	}
+	if errors.Is(err, filesystem.ErrExists) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	var opErr *filesystem.OpError
+	if errors.As(err, &opErr) {
+		code := http.StatusBadRequest
+		if opErr.Permission {
+			code = http.StatusForbidden
+		}
+		writeJSON(w, code, map[string]string{"error": opErr.Message})
 		return
 	}
 	msg := err.Error()

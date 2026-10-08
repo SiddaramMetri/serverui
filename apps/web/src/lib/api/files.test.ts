@@ -3,7 +3,7 @@ import {
   archiveStem,
   baseName,
   buildMoveDestination,
-  isExtractable,
+  isArchive,
   isValidMove,
   joinPath,
   parentPath,
@@ -60,10 +60,10 @@ describe("archive helpers", () => {
       "backup.tar.xz",
       "photos.7z",
     ]) {
-      expect(isExtractable(name)).toBe(true);
+      expect(isArchive({ name, type: "file" })).toBe(true);
     }
     for (const name of ["notes.txt", "log.gz", "data.rar", ".zip"]) {
-      expect(isExtractable(name)).toBe(false);
+      expect(isArchive({ name, type: "file" })).toBe(false);
     }
   });
 

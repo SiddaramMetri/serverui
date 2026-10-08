@@ -88,7 +88,6 @@ export function FileList({
                 {...{ [FILE_DROP_ATTR]: parentDest }}
                 className="sui-finder-row cursor-default select-none"
                 data-drop={ghost?.dest === parentDest}
-                onClick={onParent}
                 onDoubleClick={onParent}
               >
                 <td className="py-[3px] pr-3 pl-5" colSpan={4}>
