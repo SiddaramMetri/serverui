@@ -4,19 +4,25 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
+  ARCHIVE_FORMATS,
+  archiveSuffix,
   baseName,
   buildMoveDestination,
+  compressItems,
+  copyItem,
   createDirectory,
   createFile,
   deleteFile,
-  downloadUrl,
+  extractArchive,
   isValidMove,
   joinPath,
   listFiles,
+  moveItem,
   parentPath,
   renameFile,
   suggestUniqueName,
   uploadFile,
+  type ArchiveFormat,
   type FileEntry,
 } from "@/src/lib/api/files";
 import { useWindowManager } from "@/src/components/window/window-context";
@@ -24,6 +30,7 @@ import { useServer } from "@/src/lib/api/server-context";
 import { useSelectedServer } from "@/src/lib/session";
 import { formatSize, totalSize } from "@/src/lib/files/format";
 import { Breadcrumbs } from "@/src/components/apps/files/Breadcrumbs";
+import { DownloadPanel, useDownloadQueue } from "@/src/components/apps/files/DownloadQueue";
 import { FileContextMenu } from "@/src/components/apps/files/FileContextMenu";
 import { FileList } from "@/src/components/apps/files/FileList";
 import { FileToolbar, toolbarClass } from "@/src/components/apps/files/FileToolbar";
@@ -47,6 +54,24 @@ type PendingMove = {
   destNames: string[];
 };
 
+type Clipboard = { mode: "copy" | "cut"; items: FileEntry[] };
+
+type PendingPaste = { items: FileEntry[]; conflicts: FileEntry[] };
+
+type CompressState = {
+  items: FileEntry[];
+  name: string;
+  format: ArchiveFormat;
+  conflict: boolean;
+  busy: boolean;
+};
+
+function withArchiveExt(name: string, format: ArchiveFormat) {
+  const ext = ARCHIVE_FORMATS.find((f) => f.id === format)!.ext;
+  const suffix = archiveSuffix(name);
+  return (suffix ? name.slice(0, -suffix.length) : name) + ext;
+}
+
 export function FilesApp() {
   const { openWindow } = useWindowManager();
   const { server } = useServer();
@@ -68,14 +93,21 @@ export function FilesApp() {
     total: number;
     name: string;
   } | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<{
+  const [notice, setNotice] = useState<{
     type: "info" | "success" | "error";
     message: string;
+    downloadPath?: string;
   } | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [clipboard, setClipboard] = useState<Clipboard | null>(null);
+  const [pendingPaste, setPendingPaste] = useState<PendingPaste | null>(null);
+  const [compress, setCompress] = useState<CompressState | null>(null);
+  const [folderDownload, setFolderDownload] = useState<FileEntry[] | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const compressInputRef = useRef<HTMLInputElement>(null);
   const serverId = selectedServer?.id || "";
+  const downloads = useDownloadQueue(serverId);
   const homePath =
     selectedServer?.username || server?.username
       ? `/home/${selectedServer?.username || server?.username}`
@@ -137,7 +169,7 @@ export function FilesApp() {
     setQuery("");
     setPath(normalized);
     setMenu(null);
-    setDownloadStatus(null);
+    setNotice(null);
     setPendingMove(null);
     void load(normalized);
   }
@@ -148,7 +180,7 @@ export function FilesApp() {
     setHistoryIndex(nextIndex);
     clearSelection();
     setPath(history[nextIndex]);
-    setDownloadStatus(null);
+    setNotice(null);
     void load(history[nextIndex]);
   }
 
@@ -158,7 +190,7 @@ export function FilesApp() {
     setHistoryIndex(nextIndex);
     clearSelection();
     setPath(history[nextIndex]);
-    setDownloadStatus(null);
+    setNotice(null);
     void load(history[nextIndex]);
   }
 
@@ -328,60 +360,201 @@ export function FilesApp() {
     await load(path);
   }
 
-  async function onDownloadSelected(itemsToDownload: FileEntry[]) {
+  // Folders are never downloaded directly: the user is told up front and offered compression instead.
+  function onDownloadSelected(itemsToDownload: FileEntry[]) {
     if (!itemsToDownload || itemsToDownload.length === 0) return;
-
-    const files = itemsToDownload.filter((e) => e.type === "file");
-    const dirs = itemsToDownload.filter((e) => e.type === "dir");
-
-    if (files.length === 0 && dirs.length > 0) {
-      setDownloadStatus({
-        type: "error",
-        message:
-          dirs.length === 1
-            ? `Folder “${dirs[0].name}” cannot be downloaded directly with the current download architecture.`
-            : `Folders cannot be downloaded directly with the current download architecture (${dirs.length} folders selected).`,
-      });
+    if (itemsToDownload.some((e) => e.type === "dir")) {
+      setFolderDownload(itemsToDownload);
       return;
     }
+    downloads.start(itemsToDownload);
+  }
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setDownloadStatus({
+  function errorMessage(err: unknown, fallback: string) {
+    return err instanceof ApiError ? err.message : fallback;
+  }
+
+  function copyToClipboard(mode: Clipboard["mode"], items: FileEntry[]) {
+    if (items.length === 0) return;
+    setClipboard({ mode, items });
+    const what = items.length === 1 ? `“${items[0].name}”` : `${items.length} items`;
+    setNotice({
+      type: "info",
+      message: `${mode === "copy" ? "Copied" : "Cut"} ${what}. Open the destination folder and choose Paste.`,
+    });
+  }
+
+  function paste() {
+    if (!clipboard) return;
+    const { mode } = clipboard;
+    // Cutting into the folder the items already live in is a no-op.
+    const items = clipboard.items.filter(
+      (item) => !(mode === "cut" && parentPath(item.path) === path),
+    );
+    if (items.length === 0) {
+      setNotice({ type: "info", message: "The items are already in this folder." });
+      return;
+    }
+    const nested = items.find(
+      (item) => item.type === "dir" && (path === item.path || path.startsWith(`${item.path}/`)),
+    );
+    if (nested) {
+      setError(`cannot paste “${nested.name}” into itself`);
+      return;
+    }
+    const names = entries.map((e) => e.name);
+    // A copy into its own folder is a duplicate, never a conflict: it always keeps both.
+    const conflicts = items.filter(
+      (item) => names.includes(item.name) && parentPath(item.path) !== path,
+    );
+    if (conflicts.length > 0) {
+      setPendingPaste({ items, conflicts });
+      return;
+    }
+    void runPaste(items, "keep");
+  }
+
+  async function runPaste(items: FileEntry[], resolution: "replace" | "keep") {
+    if (!clipboard) return;
+    const { mode } = clipboard;
+    const op = mode === "copy" ? copyItem : moveItem;
+    const verb = mode === "copy" ? "Copying" : "Moving";
+    const taken = entries.map((e) => e.name);
+    const failed: FileEntry[] = [];
+    const errors: string[] = [];
+    setPendingPaste(null);
+    setError(null);
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let name = item.name;
+      let overwrite = false;
+      if (taken.includes(name)) {
+        if (resolution === "replace" && parentPath(item.path) !== path) overwrite = true;
+        else name = suggestUniqueName(taken, name);
+      }
+      taken.push(name);
+      setNotice({
         type: "info",
-        message:
-          files.length > 1
-            ? `Downloading ${i + 1} of ${files.length}: “${file.name}”…`
-            : `Downloading “${file.name}”…`,
+        message: `${verb} ${items.length > 1 ? `${i + 1} of ${items.length}: ` : ""}“${item.name}”…`,
       });
-
-      const url = downloadUrl(serverId, file.path);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.name;
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      if (i < files.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
+      try {
+        await op(serverId, item.path, joinPath(path, name), overwrite);
+      } catch (err) {
+        failed.push(item);
+        errors.push(`“${item.name}”: ${errorMessage(err, "operation failed")}`);
       }
     }
 
-    const skippedText =
-      dirs.length > 0
-        ? ` (${dirs.length} ${dirs.length === 1 ? "folder" : "folders"} skipped: folders cannot be downloaded directly)`
-        : "";
+    // A cut stays on the clipboard only for the items that failed to move.
+    if (mode === "cut") setClipboard(failed.length > 0 ? { mode, items: failed } : null);
+    const done = items.length - failed.length;
+    if (errors.length > 0) {
+      setNotice(null);
+      setError(
+        `${done > 0 ? `${mode === "copy" ? "Copied" : "Moved"} ${done} of ${items.length} items. ` : ""}Failed: ${errors.join(", ")}`,
+      );
+    } else {
+      setNotice({
+        type: "success",
+        message: `${mode === "copy" ? "Copied" : "Moved"} ${items.length} ${items.length === 1 ? "item" : "items"}.`,
+      });
+    }
+    clearSelection();
+    await load(path);
+  }
 
-    setDownloadStatus({
-      type: "success",
-      message: `Downloaded ${files.length} ${files.length === 1 ? "file" : "files"}${skippedText}.`,
+  function openCompress(items: FileEntry[]) {
+    if (items.length === 0) return;
+    setFolderDownload(null);
+    const base = items.length === 1 ? items[0].name : "Archive";
+    setCompress({
+      items,
+      name: withArchiveExt(base, "zip"),
+      format: "zip",
+      conflict: false,
+      busy: false,
     });
+  }
 
-    setTimeout(() => {
-      setDownloadStatus((current) => (current?.type === "success" ? null : current));
-    }, 4000);
+  async function submitCompress(overwrite: boolean) {
+    if (!compress || !compress.name.trim() || compress.busy) return;
+    const { items, format } = compress;
+    const name = withArchiveExt(compress.name.trim(), format);
+    setCompress({ ...compress, name, busy: true, conflict: false });
+    setError(null);
+    setNotice({
+      type: "info",
+      message: `Compressing ${items.length === 1 ? `“${items[0].name}”` : `${items.length} items`} into “${name}”… Large folders can take a while.`,
+    });
+    try {
+      const result = await compressItems(
+        serverId,
+        path,
+        items.map((item) => item.name),
+        name,
+        format,
+        overwrite,
+      );
+      setCompress(null);
+      setNotice({
+        type: "success",
+        message: `Created “${baseName(result.path)}”.`,
+        downloadPath: result.path,
+      });
+      await load(path);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setNotice(null);
+        setCompress({ ...compress, name, busy: false, conflict: true });
+        return;
+      }
+      setNotice(null);
+      const message = errorMessage(err, "operation failed");
+      // zip and 7z are often missing on minimal servers; tar.gz always works, so offer it in one click.
+      if (message.includes("is not installed") && format !== "tar.gz") {
+        setCompress({
+          ...compress,
+          name: withArchiveExt(name, "tar.gz"),
+          format: "tar.gz",
+          busy: false,
+        });
+        setError(
+          `Compression failed: ${message}. Switched to TAR.GZ, which works on any Linux server: press Compress again.`,
+        );
+        return;
+      }
+      setCompress({ ...compress, name, busy: false });
+      setError(`Compression failed: ${message}`);
+    }
+  }
+
+  async function extract(entry: FileEntry) {
+    setError(null);
+    setNotice({ type: "info", message: `Extracting “${entry.name}”…` });
+    try {
+      const result = await extractArchive(serverId, entry.path);
+      setNotice({ type: "success", message: `Extracted into “${baseName(result.path)}”.` });
+      await load(path);
+    } catch (err) {
+      setNotice(null);
+      setError(`Extraction failed: ${errorMessage(err, "operation failed")}`);
+    }
+  }
+
+  function downloadCreated(archivePath: string) {
+    const entry = entries.find((e) => e.path === archivePath);
+    downloads.start([
+      entry ?? {
+        name: baseName(archivePath),
+        path: archivePath,
+        type: "file",
+        size: 0,
+        mode: "",
+        modified: "",
+      },
+    ]);
+    setNotice(null);
   }
 
   async function onUpload(fileList: globalThis.FileList | null) {
@@ -437,7 +610,9 @@ export function FilesApp() {
               pendingMove.destDir,
               suggestUniqueName(pendingMove.destNames, pendingMove.name),
             );
-      await renameFile(serverId, pendingMove.from, to);
+      // SFTP rename refuses an existing target, so Replace goes through the server-side move.
+      if (mode === "replace") await moveItem(serverId, pendingMove.from, to, true);
+      else await renameFile(serverId, pendingMove.from, to);
       setPendingMove(null);
       clearSelection();
       await load(path);
@@ -456,12 +631,17 @@ export function FilesApp() {
       }
     }
     const width = 210;
-    const height = 180;
+    const height = 360;
     setMenu({
       x: Math.min(event.clientX, window.innerWidth - width - 8),
       y: Math.min(event.clientY, window.innerHeight - height - 8),
       entry,
     });
+  }
+
+  function menuTargets(entry: FileEntry | null) {
+    if (selectedEntries.length > 1) return selectedEntries;
+    return entry ? [entry] : [];
   }
 
   function copyPath(value: string) {
@@ -505,9 +685,17 @@ export function FilesApp() {
           return;
         }
 
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        const meta = event.ctrlKey || event.metaKey;
+        const key = event.key.toLowerCase();
+        if (meta && key === "a") {
           event.preventDefault();
           selectAll();
+        } else if (meta && (key === "c" || key === "x") && selectedEntries.length > 0) {
+          event.preventDefault();
+          copyToClipboard(key === "c" ? "copy" : "cut", selectedEntries);
+        } else if (meta && key === "v" && clipboard) {
+          event.preventDefault();
+          paste();
         } else if (event.key === "Escape") {
           event.preventDefault();
           clearSelection();
@@ -630,6 +818,24 @@ export function FilesApp() {
           >
             New folder
           </button>
+          {clipboard ? (
+            <>
+              <button type="button" className={toolbarClass} onClick={paste}>
+                Paste{" "}
+                {clipboard.items.length === 1
+                  ? `“${clipboard.items[0].name}”`
+                  : `${clipboard.items.length} items`}
+              </button>
+              <button
+                type="button"
+                aria-label="Clear clipboard"
+                className={toolbarClass}
+                onClick={() => setClipboard(null)}
+              >
+                ×
+              </button>
+            </>
+          ) : null}
         </div>
         {dialog ? (
           <form
@@ -660,22 +866,31 @@ export function FilesApp() {
             </button>
           </form>
         ) : null}
-        {downloadStatus ? (
+        {notice ? (
           <div
             className={`flex items-center justify-between border-b px-4 py-2 text-[12px] ${
-              downloadStatus.type === "error"
+              notice.type === "error"
                 ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-300"
-                : downloadStatus.type === "success"
+                : notice.type === "success"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300"
                   : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-300"
             }`}
             role="status"
           >
-            <span className="min-w-0 flex-1">{downloadStatus.message}</span>
+            <span className="min-w-0 flex-1">{notice.message}</span>
+            {notice.downloadPath ? (
+              <button
+                type="button"
+                className="ml-2 text-xs font-semibold underline"
+                onClick={() => downloadCreated(notice.downloadPath!)}
+              >
+                Download
+              </button>
+            ) : null}
             <button
               type="button"
               className="ml-2 text-xs font-semibold opacity-70 hover:opacity-100"
-              onClick={() => setDownloadStatus(null)}
+              onClick={() => setNotice(null)}
             >
               Dismiss
             </button>
@@ -766,6 +981,175 @@ export function FilesApp() {
             </button>
           </div>
         ) : null}
+        {pendingPaste ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+            role="alertdialog"
+            aria-labelledby="paste-conflict-title"
+          >
+            <p id="paste-conflict-title" className="min-w-0 flex-1">
+              {pendingPaste.conflicts.length === 1 ? (
+                <>
+                  An item named{" "}
+                  <span className="font-medium">“{pendingPaste.conflicts[0].name}”</span> already
+                  exists.
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">{pendingPaste.conflicts.length} items</span> already
+                  exist in this folder. Your choice applies to all of them.
+                </>
+              )}
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setPendingPaste(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void runPaste(pendingPaste.items, "replace")}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void runPaste(pendingPaste.items, "keep")}
+            >
+              Keep Both
+            </button>
+          </div>
+        ) : null}
+        {folderDownload ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+            role="alertdialog"
+            aria-labelledby="folder-download-title"
+          >
+            <p id="folder-download-title" className="min-w-0 flex-1">
+              Folders can’t be downloaded directly. Compress the selection into one archive, then
+              download the archive.
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setFolderDownload(null)}>
+              Cancel
+            </button>
+            {folderDownload.some((e) => e.type === "file") ? (
+              <button
+                type="button"
+                className={toolbarClass}
+                onClick={() => {
+                  downloads.start(folderDownload.filter((e) => e.type === "file"));
+                  setFolderDownload(null);
+                }}
+              >
+                Download files only
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => openCompress(folderDownload)}
+            >
+              Compress…
+            </button>
+          </div>
+        ) : null}
+        {compress ? (
+          <form
+            className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]"
+            aria-label="Compress"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitCompress(false);
+            }}
+          >
+            <label htmlFor="compress-name" className="text-neutral-500">
+              Archive name
+            </label>
+            <input
+              id="compress-name"
+              ref={compressInputRef}
+              autoFocus
+              disabled={compress.busy}
+              className="sui-input min-w-0 flex-1 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
+              value={compress.name}
+              onChange={(event) =>
+                setCompress({ ...compress, name: event.target.value, conflict: false })
+              }
+            />
+            <label htmlFor="compress-format" className="text-neutral-500">
+              Format
+            </label>
+            <select
+              id="compress-format"
+              disabled={compress.busy}
+              className="sui-input rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
+              value={compress.format}
+              onChange={(event) => {
+                const format = event.target.value as ArchiveFormat;
+                setCompress({
+                  ...compress,
+                  format,
+                  name: withArchiveExt(compress.name, format),
+                  conflict: false,
+                });
+              }}
+            >
+              {ARCHIVE_FORMATS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            {compress.conflict ? (
+              <>
+                <span role="alert" className="w-full text-amber-800 dark:text-amber-300">
+                  “{compress.name}” already exists.
+                </span>
+                <button type="button" className={toolbarClass} onClick={() => setCompress(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  onClick={() => void submitCompress(true)}
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  onClick={() => {
+                    setCompress({ ...compress, conflict: false });
+                    compressInputRef.current?.focus();
+                    compressInputRef.current?.select();
+                  }}
+                >
+                  Choose another name
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  disabled={compress.busy}
+                  onClick={() => setCompress(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className={toolbarClass} disabled={compress.busy}>
+                  {compress.busy ? "Compressing…" : "Compress"}
+                </button>
+              </>
+            )}
+          </form>
+        ) : null}
+        <DownloadPanel
+          items={downloads.items}
+          onRetry={downloads.retryFailed}
+          onDismiss={downloads.dismiss}
+        />
         <div className="relative flex min-h-0 flex-1 flex-col">
           <FileList
             path={path}
@@ -842,7 +1226,16 @@ export function FilesApp() {
           }}
           onInfo={() => openInfo(menu.entry)}
           onTerminalHere={() => openTerminalHere(menu.entry)}
-          onClearSelection={clearSelection}
+          onRename={() =>
+            menu.entry &&
+            setDialog({ type: "rename", value: menu.entry.name, from: menu.entry.path })
+          }
+          onCopy={() => copyToClipboard("copy", menuTargets(menu.entry))}
+          onCut={() => copyToClipboard("cut", menuTargets(menu.entry))}
+          onPaste={paste}
+          canPaste={Boolean(clipboard)}
+          onCompress={() => openCompress(menuTargets(menu.entry))}
+          onExtract={() => menu.entry && void extract(menu.entry)}
           onClose={() => setMenu(null)}
         />
       ) : null}

@@ -82,6 +82,83 @@ export async function uploadFile(serverId: string, directory: string, file: File
   });
 }
 
+// Copy, move, compress and extract run as shell commands on the server and can take minutes.
+const LONG_OPERATION_MS = 30 * 60 * 1000;
+
+export function copyItem(serverId: string, from: string, to: string, overwrite = false) {
+  return apiRequest<{ status: string }>("/api/files/copy", {
+    method: "POST",
+    body: JSON.stringify({ serverId, from, to, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+export function moveItem(serverId: string, from: string, to: string, overwrite = false) {
+  return apiRequest<{ status: string }>("/api/files/move", {
+    method: "POST",
+    body: JSON.stringify({ serverId, from, to, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+export const ARCHIVE_FORMATS = [
+  { id: "zip", label: "ZIP", ext: ".zip" },
+  { id: "tar.gz", label: "TAR.GZ", ext: ".tar.gz" },
+  { id: "tgz", label: "TGZ", ext: ".tgz" },
+  { id: "tar.bz2", label: "TAR.BZ2", ext: ".tar.bz2" },
+  { id: "tar.xz", label: "TAR.XZ", ext: ".tar.xz" },
+  { id: "tar", label: "TAR", ext: ".tar" },
+  { id: "7z", label: "7Z", ext: ".7z" },
+] as const;
+
+export type ArchiveFormat = (typeof ARCHIVE_FORMATS)[number]["id"];
+
+export function compressItems(
+  serverId: string,
+  dir: string,
+  names: string[],
+  archive: string,
+  format: ArchiveFormat,
+  overwrite = false,
+) {
+  return apiRequest<{ status: string; path: string }>("/api/files/compress", {
+    method: "POST",
+    body: JSON.stringify({ serverId, dir, names, archive, format, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+export function extractArchive(serverId: string, path: string) {
+  return apiRequest<{ status: string; path: string }>("/api/files/extract", {
+    method: "POST",
+    body: JSON.stringify({ serverId, path }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+const ARCHIVE_SUFFIXES = [
+  ".tar.gz",
+  ".tar.bz2",
+  ".tar.xz",
+  ".tgz",
+  ".tbz2",
+  ".txz",
+  ".tar",
+  ".zip",
+  ".7z",
+];
+
+export function archiveSuffix(name: string) {
+  const lower = name.toLowerCase();
+  return (
+    ARCHIVE_SUFFIXES.find((suffix) => lower.endsWith(suffix) && name.length > suffix.length) ?? ""
+  );
+}
+
+export function isArchive(entry: Pick<FileEntry, "name" | "type">) {
+  return entry.type === "file" && archiveSuffix(entry.name) !== "";
+}
+
 export function downloadUrl(serverId: string, path: string) {
   return authenticatedApiUrl(`/api/files/download?${fileQuery(serverId, { path, download: "1" })}`);
 }
