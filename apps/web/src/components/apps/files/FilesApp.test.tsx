@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesApp } from "@/src/components/apps/files/FilesApp";
 import { WindowManagerProvider } from "@/src/components/window/window-context";
+import { ApiError } from "@/src/lib/api/client";
 import type { ExtractJob, FileEntry } from "@/src/lib/api/files";
 
 const mockEntries: FileEntry[] = [
@@ -32,9 +33,21 @@ const mockEntries: FileEntry[] = [
   },
 ];
 
-const { listFilesMock, deleteFileMock, mocks } = vi.hoisted(() => ({
+const {
+  listFilesMock,
+  deleteFileMock,
+  copyItemMock,
+  moveItemMock,
+  compressItemsMock,
+  fetchMock,
+  mocks,
+} = vi.hoisted(() => ({
   listFilesMock: vi.fn(),
   deleteFileMock: vi.fn(),
+  copyItemMock: vi.fn(),
+  moveItemMock: vi.fn(),
+  compressItemsMock: vi.fn(),
+  fetchMock: vi.fn(),
   mocks: {
     startExtract: vi.fn(),
     getExtractJob: vi.fn(),
@@ -49,13 +62,31 @@ vi.mock("@/src/lib/api/files", async () => {
     ...actual,
     listFiles: (...args: unknown[]) => listFilesMock(...args),
     deleteFile: (...args: unknown[]) => deleteFileMock(...args),
+    copyItem: (...args: unknown[]) => copyItemMock(...args),
+    moveItem: (...args: unknown[]) => moveItemMock(...args),
+    compressItems: (...args: unknown[]) => compressItemsMock(...args),
     startExtract: (...args: unknown[]) => mocks.startExtract(...args),
     getExtractJob: (...args: unknown[]) => mocks.getExtractJob(...args),
     resolveExtract: (...args: unknown[]) => mocks.resolveExtract(...args),
     cancelExtract: (...args: unknown[]) => mocks.cancelExtract(...args),
-    downloadUrl: vi.fn((serverId: string, path: string) => `/mock/download?path=${path}`),
+    downloadUrl: vi.fn((_serverId: string, path: string) => `/mock/download?path=${path}`),
   };
 });
+
+function renderApp() {
+  return render(
+    <WindowManagerProvider>
+      <FilesApp />
+    </WindowManagerProvider>,
+  );
+}
+
+function select(name: string, modifiers: { ctrlKey?: boolean } = {}) {
+  const row = screen.getByText(name).closest("tr")!;
+  fireEvent.mouseDown(row, { clientX: 10, clientY: 10, ...modifiers });
+  fireEvent.mouseUp(row, { clientX: 10, clientY: 10, ...modifiers });
+  return row;
+}
 
 vi.mock("@/src/lib/session", () => ({
   useSelectedServer: () => ({ id: "srv-1", name: "Prod", username: "deploy" }),
@@ -73,6 +104,12 @@ describe("FilesApp multi-select", () => {
       entries: mockEntries,
     });
     deleteFileMock.mockResolvedValue({ status: "ok" });
+    copyItemMock.mockResolvedValue({ status: "ok" });
+    moveItemMock.mockResolvedValue({ status: "ok" });
+    fetchMock.mockImplementation(async () => new Response("data"));
+    vi.stubGlobal("fetch", fetchMock);
+    URL.createObjectURL = vi.fn(() => "blob:mock");
+    URL.revokeObjectURL = vi.fn();
   });
 
   it("selects multiple items and shows item count in toolbar and status bar", async () => {
@@ -166,64 +203,158 @@ describe("FilesApp multi-select", () => {
     });
   });
 
-  it("handles multi-item download with status feedback", async () => {
+  it("warns before downloading a selection with folders and offers compression", async () => {
     const user = userEvent.setup();
-
-    render(
-      <WindowManagerProvider>
-        <FilesApp />
-      </WindowManagerProvider>,
-    );
-
+    renderApp();
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    // Select alpha.txt and gamma_folder
-    const rowAlpha = screen.getByText("alpha.txt").closest("tr")!;
-    const rowGamma = screen.getByText("gamma_folder").closest("tr")!;
+    select("alpha.txt");
+    select("gamma_folder", { ctrlKey: true });
+    await user.click(screen.getByRole("button", { name: "Download" }));
 
-    fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
-    fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      /Folders can’t be downloaded directly/i,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    fireEvent.mouseDown(rowGamma, { clientX: 10, clientY: 30, ctrlKey: true });
-    fireEvent.mouseUp(rowGamma, { clientX: 10, clientY: 30, ctrlKey: true });
-
-    // Click Download
-    const downloadBtn = screen.getByRole("button", { name: "Download" });
-    await user.click(downloadBtn);
-
-    // Status feedback communicates downloaded files and skipped folders
-    expect(
-      await screen.findByText(
-        /Downloaded 1 file \(1 folder skipped: folders cannot be downloaded directly\)\./i,
-      ),
-    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Compress…" }));
+    expect(screen.getByLabelText("Archive name")).toHaveValue("Archive.zip");
   });
 
-  it("notifies when attempting to download only folders", async () => {
+  it("downloads files with progress and retries only the failed ones", async () => {
     const user = userEvent.setup();
+    let betaAttempts = 0;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("beta") && betaAttempts++ === 0) {
+        return new Response(JSON.stringify({ error: "permission denied" }), { status: 403 });
+      }
+      return new Response("data");
+    });
+    renderApp();
+    expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    render(
-      <WindowManagerProvider>
-        <FilesApp />
-      </WindowManagerProvider>,
+    select("alpha.txt");
+    select("beta.txt", { ctrlKey: true });
+    await user.click(screen.getByRole("button", { name: "Download" }));
+
+    const panel = await screen.findByRole("status", { name: "Downloads" });
+    await waitFor(() => expect(panel).toHaveTextContent("1 of 2 complete, 1 failed"));
+    expect(panel).toHaveTextContent("Failed: permission denied");
+
+    await user.click(screen.getByRole("button", { name: "Retry failed" }));
+    await waitFor(() => expect(panel).toHaveTextContent("2 of 2 complete"));
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.filter((u) => u.includes("alpha"))).toHaveLength(1);
+    expect(urls.filter((u) => u.includes("beta"))).toHaveLength(2);
+  });
+
+  it("copies with the keyboard and asks before replacing on paste", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
+
+    const row = select("alpha.txt");
+    fireEvent.keyDown(row, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(row, { key: "v", ctrlKey: true });
+
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      /An item named “alpha.txt” already exists/,
+    );
+    await user.click(screen.getByRole("button", { name: "Keep Both" }));
+    await waitFor(() =>
+      expect(copyItemMock).toHaveBeenCalledWith(
+        "srv-1",
+        "/home/alpha.txt",
+        "/alpha (1).txt",
+        false,
+      ),
     );
 
+    fireEvent.keyDown(select("alpha.txt"), { key: "v", ctrlKey: true });
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+    await waitFor(() =>
+      expect(copyItemMock).toHaveBeenCalledWith("srv-1", "/home/alpha.txt", "/alpha.txt", true),
+    );
+  });
+
+  it("moves cut items and empties the clipboard", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    expect(await screen.findByText("beta.txt")).toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByText("beta.txt"));
+    await user.click(screen.getByRole("menuitem", { name: "Cut" }));
+    expect(screen.getByRole("button", { name: "Paste “beta.txt”" })).toBeInTheDocument();
+
+    // The listing already holds a "beta.txt", so pasting here asks first.
+    fireEvent.keyDown(select("alpha.txt"), { key: "v", ctrlKey: true });
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+    await waitFor(() =>
+      expect(moveItemMock).toHaveBeenCalledWith("srv-1", "/home/beta.txt", "/beta.txt", true),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /^Paste/ })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("asks before replacing an existing archive", async () => {
+    const user = userEvent.setup();
+    compressItemsMock
+      .mockRejectedValueOnce(new ApiError("already exists", 409))
+      .mockResolvedValueOnce({ status: "ok", path: "/gamma_folder.zip" });
+    renderApp();
     expect(await screen.findByText("gamma_folder")).toBeInTheDocument();
 
-    // Select only gamma_folder
-    const rowGamma = screen.getByText("gamma_folder").closest("tr")!;
-    fireEvent.mouseDown(rowGamma, { clientX: 10, clientY: 30 });
-    fireEvent.mouseUp(rowGamma, { clientX: 10, clientY: 30 });
+    fireEvent.contextMenu(screen.getByText("gamma_folder"));
+    await user.click(screen.getByRole("menuitem", { name: "Compress" }));
+    expect(screen.getByLabelText("Archive name")).toHaveValue("gamma_folder.zip");
+    await user.selectOptions(screen.getByLabelText("Format"), "tar.gz");
+    expect(screen.getByLabelText("Archive name")).toHaveValue("gamma_folder.tar.gz");
+    await user.selectOptions(screen.getByLabelText("Format"), "zip");
+    await user.click(screen.getByRole("button", { name: "Compress" }));
 
-    // Click Download
-    const downloadBtn = screen.getByRole("button", { name: "Download" });
-    await user.click(downloadBtn);
-
-    expect(
-      await screen.findByText(
-        /Folder “gamma_folder” cannot be downloaded directly with the current download architecture\./i,
+    expect(await screen.findByText("“gamma_folder.zip” already exists.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+    await waitFor(() =>
+      expect(compressItemsMock).toHaveBeenLastCalledWith(
+        "srv-1",
+        "/",
+        ["gamma_folder"],
+        "gamma_folder.zip",
+        "zip",
+        true,
       ),
-    ).toBeInTheDocument();
+    );
+    expect(await screen.findByText("Created “gamma_folder.zip”.")).toBeInTheDocument();
+  });
+
+  it("switches to tar.gz when zip is missing on the server", async () => {
+    const user = userEvent.setup();
+    compressItemsMock
+      .mockRejectedValueOnce(new ApiError("zip is not installed on the server", 400))
+      .mockResolvedValueOnce({ status: "ok", path: "/gamma_folder.tar.gz" });
+    renderApp();
+    expect(await screen.findByText("gamma_folder")).toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByText("gamma_folder"));
+    await user.click(screen.getByRole("menuitem", { name: "Compress" }));
+    await user.click(screen.getByRole("button", { name: "Compress" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Switched to TAR.GZ/);
+    expect(screen.getByLabelText("Format")).toHaveValue("tar.gz");
+    expect(screen.getByLabelText("Archive name")).toHaveValue("gamma_folder.tar.gz");
+
+    await user.click(screen.getByRole("button", { name: "Compress" }));
+    await waitFor(() =>
+      expect(compressItemsMock).toHaveBeenLastCalledWith(
+        "srv-1",
+        "/",
+        ["gamma_folder"],
+        "gamma_folder.tar.gz",
+        "tar.gz",
+        false,
+      ),
+    );
   });
 });
 

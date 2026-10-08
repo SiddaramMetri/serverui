@@ -304,46 +304,29 @@ const (
 	Format7z     Format = "7z"
 )
 
-// suffixes is ordered longest first so ".tar.gz" wins over ".gz"-like matches.
-var suffixes = []struct {
-	suffix string
-	format Format
-}{
-	{".tar.gz", FormatTarGz},
-	{".tar.bz2", FormatTarBz2},
-	{".tar.xz", FormatTarXz},
-	{".tgz", FormatTarGz},
-	{".tbz2", FormatTarBz2},
-	{".tbz", FormatTarBz2},
-	{".txz", FormatTarXz},
-	{".tar", FormatTar},
-	{".zip", FormatZip},
-	{".7z", Format7z},
+// formatBySuffix maps the archive suffixes filesystem.ArchiveSuffix knows
+// (shared with Compress) to the tool family that extracts them.
+var formatBySuffix = map[string]Format{
+	".tar.gz":  FormatTarGz,
+	".tgz":     FormatTarGz,
+	".tar.bz2": FormatTarBz2,
+	".tbz2":    FormatTarBz2,
+	".tar.xz":  FormatTarXz,
+	".txz":     FormatTarXz,
+	".tar":     FormatTar,
+	".zip":     FormatZip,
+	".7z":      Format7z,
 }
 
 // Detect returns the archive format implied by a file name.
 func Detect(name string) (Format, bool) {
-	_, format, ok := match(name)
+	format, ok := formatBySuffix[filesystem.ArchiveSuffix(name)]
 	return format, ok
 }
 
 // Stem strips the archive suffix: "backup.tar.gz" becomes "backup".
 func Stem(name string) string {
-	suffix, _, ok := match(name)
-	if !ok {
-		return name
-	}
-	return name[:len(name)-len(suffix)]
-}
-
-func match(name string) (string, Format, bool) {
-	lower := strings.ToLower(name)
-	for _, s := range suffixes {
-		if strings.HasSuffix(lower, s.suffix) && len(lower) > len(s.suffix) {
-			return s.suffix, s.format, true
-		}
-	}
-	return "", "", false
+	return name[:len(name)-len(filesystem.ArchiveSuffix(name))]
 }
 
 // label is the user-facing format name used in error messages.
