@@ -1,12 +1,18 @@
 package sshx
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// streamStderrLimit caps how much stderr Stream keeps for error reporting.
+const streamStderrLimit = 8 << 10
 
 type Status string
 
@@ -123,14 +129,8 @@ func (m *Manager) watch(client *ssh.Client) {
 }
 
 func (m *Manager) Run(command string) ([]byte, error) {
-	client, err := m.Ensure()
+	session, err := m.newSession()
 	if err != nil {
-		return nil, err
-	}
-
-	session, err := client.NewSession()
-	if err != nil {
-		m.invalidate(client)
 		return nil, err
 	}
 
@@ -152,6 +152,80 @@ func (m *Manager) Run(command string) ([]byte, error) {
 		_ = session.Close()
 		return nil, fmt.Errorf("timeout")
 	}
+}
+
+// Stream runs a long-lived command, calling onLine for each stdout line.
+// Unlike Run it has no fixed timeout; cancelling ctx closes the session.
+// It returns the tail of stderr so callers can classify failures.
+func (m *Manager) Stream(ctx context.Context, command string, onLine func(string)) ([]byte, error) {
+	session, err := m.newSession()
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr := &tailBuffer{limit: streamStderrLimit}
+	session.Stderr = stderr
+	if err := session.Start(command); err != nil {
+		return nil, err
+	}
+
+	stop := context.AfterFunc(ctx, func() {
+		_ = session.Signal(ssh.SIGTERM)
+		_ = session.Close()
+	})
+	defer stop()
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	for scanner.Scan() {
+		onLine(scanner.Text())
+	}
+	// Keep draining so an oversized line cannot block the remote command.
+	_, _ = io.Copy(io.Discard, stdout)
+
+	err = session.Wait()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return stderr.Bytes(), ctxErr
+	}
+	return stderr.Bytes(), err
+}
+
+// newSession opens a session on the pooled client, dropping the client if it
+// can no longer open sessions so the next call redials.
+func (m *Manager) newSession() (*ssh.Session, error) {
+	client, err := m.Ensure()
+	if err != nil {
+		return nil, err
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		m.invalidate(client)
+		return nil, err
+	}
+	return session, nil
+}
+
+// tailBuffer keeps only the last limit bytes written to it.
+type tailBuffer struct {
+	limit int
+	buf   []byte
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.buf = append(b.buf, p...)
+	if over := len(b.buf) - b.limit; over > 0 {
+		b.buf = b.buf[over:]
+	}
+	return len(p), nil
+}
+
+func (b *tailBuffer) Bytes() []byte {
+	return b.buf
 }
 
 func (m *Manager) Close() error {

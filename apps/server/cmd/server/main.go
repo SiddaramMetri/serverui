@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"serverui/server/internal/api"
+	"serverui/server/internal/archive"
 	"serverui/server/internal/crypto"
 	"serverui/server/internal/db"
 	"serverui/server/internal/filesystem"
@@ -49,10 +50,12 @@ func main() {
 	pool := svc.Pool()
 	defer pool.DisconnectAll()
 
+	files := filesystem.New(pool)
 	handler := api.New(
 		svc,
 		metrics.NewCollector(pool),
-		filesystem.New(pool),
+		files,
+		archive.New(pool, files.List),
 		terminal.New(pool),
 	).Handler()
 

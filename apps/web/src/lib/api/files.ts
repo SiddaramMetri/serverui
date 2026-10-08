@@ -128,14 +128,7 @@ export function compressItems(
   });
 }
 
-export function extractArchive(serverId: string, path: string) {
-  return apiRequest<{ status: string; path: string }>("/api/files/extract", {
-    method: "POST",
-    body: JSON.stringify({ serverId, path }),
-    timeoutMs: LONG_OPERATION_MS,
-  });
-}
-
+// Mirrors the server's filesystem.ArchiveSuffix (longest first so ".tar.gz" wins over ".tar").
 const ARCHIVE_SUFFIXES = [
   ".tar.gz",
   ".tar.bz2",
@@ -157,6 +150,65 @@ export function archiveSuffix(name: string) {
 
 export function isArchive(entry: Pick<FileEntry, "name" | "type">) {
   return entry.type === "file" && archiveSuffix(entry.name) !== "";
+}
+
+/** "backup.tar.gz" → "backup" */
+export function archiveStem(name: string) {
+  return name.slice(0, name.length - archiveSuffix(name).length);
+}
+
+export type ExtractState =
+  "scanning" | "awaiting_decision" | "extracting" | "done" | "failed" | "cancelled";
+
+export type ExtractJob = {
+  id: string;
+  state: ExtractState;
+  archive: string;
+  destination: string;
+  done: number;
+  total: number;
+  conflicts: string[];
+  extracted: string[];
+  error?: string;
+};
+
+export type ConflictPolicy = "replace" | "keep-both";
+
+export function isExtractFinished(state: ExtractState) {
+  return state === "done" || state === "failed" || state === "cancelled";
+}
+
+/** Starts a server-side extraction job; progress comes from getExtractJob. */
+export function startExtract(
+  serverId: string,
+  path: string,
+  mode: "here" | "to",
+  destination?: string,
+) {
+  return apiRequest<ExtractJob>("/api/files/extract", {
+    method: "POST",
+    body: JSON.stringify({ serverId, path, mode, destination }),
+  });
+}
+
+export function getExtractJob(serverId: string, jobId: string) {
+  return apiRequest<ExtractJob>(
+    `/api/files/extract/${encodeURIComponent(jobId)}?${fileQuery(serverId, {})}`,
+  );
+}
+
+export function resolveExtract(serverId: string, jobId: string, policy: ConflictPolicy) {
+  return apiRequest<ExtractJob>(`/api/files/extract/${encodeURIComponent(jobId)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ serverId, policy }),
+  });
+}
+
+export function cancelExtract(serverId: string, jobId: string) {
+  return apiRequest<ExtractJob>(
+    `/api/files/extract/${encodeURIComponent(jobId)}?${fileQuery(serverId, {})}`,
+    { method: "DELETE" },
+  );
 }
 
 export function downloadUrl(serverId: string, path: string) {

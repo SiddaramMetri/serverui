@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,4 +180,21 @@ func TestArchiveSuffix(t *testing.T) {
 			t.Fatalf("%q: got %q want %q", in, got, want)
 		}
 	}
+}
+
+// extractCommand unpacks archive into target; used to round-trip Compress output.
+func extractCommand(archive, target string) (string, error) {
+	a, t := shellQuote(archive), shellQuote(target)
+	var run string
+	switch ArchiveSuffix(archive) {
+	case ".zip":
+		run = fmt.Sprintf("command -v unzip >/dev/null 2>&1 || exit %d; unzip -q %s -d %s", exitMissing, a, t)
+	case ".7z":
+		run = fmt.Sprintf("Z=$(command -v 7z || command -v 7za) || exit %d; \"$Z\" x -y -bd -o%s %s >/dev/null", exitMissing, t, a)
+	case ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz":
+		run = fmt.Sprintf("tar -xf %s -C %s", a, t)
+	default:
+		return "", fmt.Errorf("unsupported archive format")
+	}
+	return fmt.Sprintf("mkdir -- %[1]s || exit 1; { %[2]s; } || { rc=$?; rm -rf -- %[1]s; exit $rc; }", t, run), nil
 }

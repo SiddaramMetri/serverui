@@ -22,6 +22,8 @@ Working in this repository:
 - SSH private-key authentication (unencrypted OpenSSH / PEM keys)
 - Browser terminal over WebSocket → SSH PTY
 - Remote file manager (SFTP)
+- Archive extraction in Files (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`, `.7z`),
+  run on the server with its own `tar` / `unzip` / `7z`
 - CPU, memory, disk, and uptime metrics from the selected server
 - Linux-inspired desktop, window manager, and server switcher
 - AES-256-GCM encryption for stored credentials
@@ -372,6 +374,9 @@ No. Makefile targets for them were removed because the code is not in this repos
 - There is no user login, SSO, or RBAC for the ServerUI app itself.
 - Editor, Applications, Domains, Databases, and Settings are not implemented.
 - CLI and agent are not implemented.
+- Archive extraction needs `tar` (plus `gzip` / `bzip2` / `xz`), Info-ZIP `unzip`, or
+  `7z` on the server. Password-protected archives, `.rar`, and single compressed
+  files such as `.gz` are not supported.
 - Desktop app: Tauri shell with release installers; code signing / notarization
   depend on CI secrets and are not claimed complete until configured and verified.
 - Official GitHub Release tags publish when maintainers cut `vX.Y.Z`.

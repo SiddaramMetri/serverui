@@ -127,22 +127,6 @@ func compressCommand(dir string, names []string, archive, tmp, format string, ov
 		shellQuote(dir), guard, create, x, x, a), nil
 }
 
-func extractCommand(archive, target string) (string, error) {
-	a, t := shellQuote(archive), shellQuote(target)
-	var run string
-	switch ArchiveSuffix(archive) {
-	case ".zip":
-		run = fmt.Sprintf("command -v unzip >/dev/null 2>&1 || exit %d; unzip -q %s -d %s", exitMissing, a, t)
-	case ".7z":
-		run = fmt.Sprintf("Z=$(command -v 7z || command -v 7za) || exit %d; \"$Z\" x -y -bd -o%s %s >/dev/null", exitMissing, t, a)
-	case ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz":
-		run = fmt.Sprintf("tar -xf %s -C %s", a, t)
-	default:
-		return "", fmt.Errorf("unsupported archive format")
-	}
-	return fmt.Sprintf("mkdir -- %[1]s || exit 1; { %[2]s; } || { rc=$?; rm -rf -- %[1]s; exit $rc; }", t, run), nil
-}
-
 // exec runs a shell command on the server without the 12s cap of Pool.Run: copies and archives
 // can take minutes. It is bound to the request context instead.
 func (s *Service) exec(ctx context.Context, serverID, command, tool string) error {
@@ -265,47 +249,4 @@ func (s *Service) Compress(ctx context.Context, serverID, dirRaw string, names [
 		return "", err
 	}
 	return archivePath, nil
-}
-
-// Extract unpacks an archive into a new folder next to it, named after the archive. It returns that folder.
-func (s *Service) Extract(ctx context.Context, serverID, archiveRaw string) (string, error) {
-	archive, err := CleanPath(archiveRaw)
-	if err != nil {
-		return "", err
-	}
-	suffix := ArchiveSuffix(archive)
-	if suffix == "" {
-		return "", fmt.Errorf("unsupported archive format")
-	}
-	client, err := s.client(serverID)
-	if err != nil {
-		return "", err
-	}
-	dir := path.Dir(archive)
-	stem := path.Base(archive)
-	stem = stem[:len(stem)-len(suffix)]
-	target := path.Join(dir, stem)
-	for i := 1; ; i++ {
-		if _, statErr := client.Lstat(target); statErr != nil {
-			break
-		}
-		target = path.Join(dir, fmt.Sprintf("%s (%d)", stem, i))
-	}
-	_ = client.Close()
-
-	command, err := extractCommand(archive, target)
-	if err != nil {
-		return "", err
-	}
-	tool := "tar"
-	switch suffix {
-	case ".zip":
-		tool = "unzip"
-	case ".7z":
-		tool = "7z"
-	}
-	if err := s.exec(ctx, serverID, command, tool); err != nil {
-		return "", err
-	}
-	return target, nil
 }

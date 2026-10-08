@@ -33,6 +33,8 @@ export const APP_META: Record<
     height: number;
     available: boolean;
     chrome: WindowChrome;
+    /** The app draws the traffic lights and drag region itself (Finder style). */
+    unifiedTitlebar?: boolean;
   }
 > = {
   dashboard: {
@@ -44,10 +46,11 @@ export const APP_META: Record<
   },
   files: {
     title: "Files",
-    width: 850,
+    width: 900,
     height: 600,
     available: true,
     chrome: "light",
+    unifiedTitlebar: true,
   },
   terminal: {
     title: "Terminal",

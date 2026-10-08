@@ -49,6 +49,18 @@ Date: _______________
 - [ ] Rename
 - [ ] Delete shows confirmation naming the file/folder
 - [ ] Permission / list errors show inline alert
+- [ ] Right-click a `.zip` / `.tar.gz` / `.7z`: **Extract Here** and **Extract To…** appear (not on other files)
+- [ ] Extract Here with one top-level folder extracts it next to the archive
+- [ ] Extract Here with several top-level items extracts into a folder named after the archive
+- [ ] Extract To… creates the destination folder when missing
+- [ ] Progress shows while extracting; Cancel leaves nothing behind (no `.serverui-extract.*` folder)
+- [ ] Existing item with the same name prompts Cancel / Keep both / Replace; Keep both creates `name (1)`
+- [ ] Corrupted archive, read-only folder, and missing `unzip` / `7z` show a clear error
+- [ ] Archive with `../` or absolute paths is refused and writes nothing
+- [ ] Icon / list view switch works and is remembered after reopening Files
+- [ ] Sidebar **Home** opens the SSH user's real home (e.g. `/root` for root)
+- [ ] Right-click menu and the toolbar ⋯ menu open at the cursor / button, fully on screen
+- [ ] Toolbar buttons show tooltips on hover; the window drags from the toolbar
 
 ## Metrics (Dashboard)
 

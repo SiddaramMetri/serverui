@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesApp } from "@/src/components/apps/files/FilesApp";
 import { WindowManagerProvider } from "@/src/components/window/window-context";
 import { ApiError } from "@/src/lib/api/client";
-import type { FileEntry } from "@/src/lib/api/files";
+import type { ExtractJob, FileEntry } from "@/src/lib/api/files";
 
 const mockEntries: FileEntry[] = [
   {
@@ -33,15 +33,28 @@ const mockEntries: FileEntry[] = [
   },
 ];
 
-const { listFilesMock, deleteFileMock, copyItemMock, moveItemMock, compressItemsMock, fetchMock } =
-  vi.hoisted(() => ({
-    listFilesMock: vi.fn(),
-    deleteFileMock: vi.fn(),
-    copyItemMock: vi.fn(),
-    moveItemMock: vi.fn(),
-    compressItemsMock: vi.fn(),
-    fetchMock: vi.fn(),
-  }));
+const {
+  listFilesMock,
+  deleteFileMock,
+  copyItemMock,
+  moveItemMock,
+  compressItemsMock,
+  fetchMock,
+  mocks,
+} = vi.hoisted(() => ({
+  listFilesMock: vi.fn(),
+  deleteFileMock: vi.fn(),
+  copyItemMock: vi.fn(),
+  moveItemMock: vi.fn(),
+  compressItemsMock: vi.fn(),
+  fetchMock: vi.fn(),
+  mocks: {
+    startExtract: vi.fn(),
+    getExtractJob: vi.fn(),
+    resolveExtract: vi.fn(),
+    cancelExtract: vi.fn(),
+  },
+}));
 
 vi.mock("@/src/lib/api/files", async () => {
   const actual = await vi.importActual<typeof import("@/src/lib/api/files")>("@/src/lib/api/files");
@@ -52,6 +65,10 @@ vi.mock("@/src/lib/api/files", async () => {
     copyItem: (...args: unknown[]) => copyItemMock(...args),
     moveItem: (...args: unknown[]) => moveItemMock(...args),
     compressItems: (...args: unknown[]) => compressItemsMock(...args),
+    startExtract: (...args: unknown[]) => mocks.startExtract(...args),
+    getExtractJob: (...args: unknown[]) => mocks.getExtractJob(...args),
+    resolveExtract: (...args: unknown[]) => mocks.resolveExtract(...args),
+    cancelExtract: (...args: unknown[]) => mocks.cancelExtract(...args),
     downloadUrl: vi.fn((_serverId: string, path: string) => `/mock/download?path=${path}`),
   };
 });
@@ -78,6 +95,11 @@ vi.mock("@/src/lib/session", () => ({
 vi.mock("@/src/lib/api/server-context", () => ({
   useServer: () => ({ server: { username: "deploy" } }),
 }));
+
+// Most tests here drive the list view (rows are <tr>); Finder icon-view tests set their own view.
+beforeEach(() => {
+  localStorage.setItem("serverui-files-view", "list");
+});
 
 describe("FilesApp multi-select", () => {
   beforeEach(() => {
@@ -112,21 +134,22 @@ describe("FilesApp multi-select", () => {
     // Select alpha.txt
     fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
     fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
-    expect(screen.getAllByText("1 item selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/1 of 3 selected/)).toBeInTheDocument();
 
     // Ctrl+Click beta.txt
     fireEvent.mouseDown(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
     fireEvent.mouseUp(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
-    expect(screen.getAllByText("2 items selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/2 of 3 selected/)).toBeInTheDocument();
 
     // Clear selection
-    const clearBtn = screen.getByRole("button", { name: "Clear" });
-    await user.click(clearBtn);
+    // Clear selection from the toolbar's more menu
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Clear Selection" }));
 
-    expect(screen.queryByText("2 items selected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 of 3 selected/)).not.toBeInTheDocument();
   });
 
-  it("selects all items via toolbar Select all", async () => {
+  it("selects all items via the toolbar more menu", async () => {
     const user = userEvent.setup();
 
     render(
@@ -137,10 +160,10 @@ describe("FilesApp multi-select", () => {
 
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    const selectAllBtn = screen.getByRole("button", { name: "Select all" });
-    await user.click(selectAllBtn);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Select All" }));
 
-    expect(screen.getAllByText("3 items selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/3 of 3 selected/)).toBeInTheDocument();
     expect(screen.getByText("alpha.txt").closest("tr")).toHaveClass("sui-selected");
     expect(screen.getByText("beta.txt").closest("tr")).toHaveClass("sui-selected");
     expect(screen.getByText("gamma_folder").closest("tr")).toHaveClass("sui-selected");
@@ -338,5 +361,252 @@ describe("FilesApp multi-select", () => {
         false,
       ),
     );
+  });
+});
+
+const archiveEntries: FileEntry[] = [
+  {
+    name: "notes.txt",
+    path: "/notes.txt",
+    type: "file",
+    size: 10,
+    mode: "-rw-r--r--",
+    modified: "2026-10-01T10:00:00Z",
+  },
+  {
+    name: "site.zip",
+    path: "/site.zip",
+    type: "file",
+    size: 2048,
+    mode: "-rw-r--r--",
+    modified: "2026-10-01T10:00:00Z",
+  },
+];
+
+function job(overrides: Partial<ExtractJob>): ExtractJob {
+  return {
+    id: "job-1",
+    state: "scanning",
+    archive: "/site.zip",
+    destination: "/",
+    done: 0,
+    total: 0,
+    conflicts: [],
+    extracted: [],
+    ...overrides,
+  };
+}
+
+const POLL_WAIT = { timeout: 3000 };
+
+async function renderFiles() {
+  render(
+    <WindowManagerProvider>
+      <FilesApp />
+    </WindowManagerProvider>,
+  );
+  expect(await screen.findByText("site.zip")).toBeInTheDocument();
+}
+
+function openMenu(name: string) {
+  fireEvent.contextMenu(screen.getByText(name).closest("tr")!, { clientX: 20, clientY: 20 });
+}
+
+describe("FilesApp archive extraction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listFilesMock.mockResolvedValue({ path: "/", entries: archiveEntries });
+  });
+
+  it("offers extraction only for supported archives", async () => {
+    await renderFiles();
+
+    openMenu("notes.txt");
+    expect(screen.queryByRole("menuitem", { name: "Extract Here" })).not.toBeInTheDocument();
+
+    openMenu("site.zip");
+    expect(screen.getByRole("menuitem", { name: "Extract Here" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Extract To…" })).toBeInTheDocument();
+  });
+
+  it("extracts here, refreshes the folder, and selects the result", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", done: 3, total: 3, extracted: ["/site"] }),
+    );
+    await renderFiles();
+    const extracted: FileEntry = { ...archiveEntries[0], name: "site", path: "/site", type: "dir" };
+    listFilesMock.mockResolvedValue({ path: "/", entries: [...archiveEntries, extracted] });
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(mocks.startExtract).toHaveBeenCalledWith("srv-1", "/site.zip", "here", undefined);
+    expect(await screen.findByText("Checking “site.zip”…")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Extracted “site.zip” to /site.", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("site").closest("tr")).toHaveClass("sui-selected"));
+  });
+
+  it("extracts to a chosen folder", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning", destination: "/srv/out" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", destination: "/srv/out", extracted: ["/srv/out/site"] }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract To…" }));
+    const input = screen.getByDisplayValue("/site");
+    await user.clear(input);
+    await user.type(input, "/srv/out");
+    await user.click(screen.getByRole("button", { name: "Extract" }));
+
+    expect(mocks.startExtract).toHaveBeenCalledWith("srv-1", "/site.zip", "to", "/srv/out");
+    expect(
+      await screen.findByText("Extracted “site.zip” to /srv/out/site.", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+  });
+
+  it("asks before overwriting and continues with keep both", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(
+      job({ state: "awaiting_decision", total: 2, conflicts: ["site"] }),
+    );
+    mocks.resolveExtract.mockResolvedValue(job({ state: "extracting", total: 2 }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "done", done: 2, total: 2, extracted: ["/site (1)"] }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    const prompt = await screen.findByRole("alertdialog");
+    expect(prompt).toHaveTextContent("“site” already exists in /.");
+    await user.click(screen.getByRole("button", { name: "Keep both" }));
+
+    expect(mocks.resolveExtract).toHaveBeenCalledWith("srv-1", "job-1", "keep-both");
+    expect(
+      await screen.findByText("Extracted “site.zip” to /site (1).", {}, POLL_WAIT),
+    ).toBeInTheDocument();
+  });
+
+  it("shows progress and lets the user cancel", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    mocks.getExtractJob.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    mocks.cancelExtract.mockResolvedValue(job({ state: "extracting", done: 1, total: 4 }));
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(await screen.findByText("Extracting “site.zip”… 1 of 4 (25%)")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
+
+    mocks.getExtractJob.mockResolvedValue(job({ state: "cancelled", done: 1, total: 4 }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(mocks.cancelExtract).toHaveBeenCalledWith("srv-1", "job-1");
+    expect(
+      await screen.findByText(
+        "Extraction of “site.zip” was cancelled. Nothing was changed.",
+        {},
+        POLL_WAIT,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("reports extraction failures", async () => {
+    const user = userEvent.setup();
+    mocks.startExtract.mockResolvedValue(job({ state: "scanning" }));
+    mocks.getExtractJob.mockResolvedValue(
+      job({ state: "failed", error: "archive is corrupted or is not a valid ZIP archive" }),
+    );
+    await renderFiles();
+
+    openMenu("site.zip");
+    await user.click(screen.getByRole("menuitem", { name: "Extract Here" }));
+
+    expect(
+      await screen.findByText(
+        "Couldn’t extract “site.zip”: archive is corrupted or is not a valid ZIP archive.",
+        {},
+        POLL_WAIT,
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("FilesApp Finder layout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem("serverui-files-view");
+    listFilesMock.mockResolvedValue({ path: "/", entries: mockEntries });
+  });
+
+  it("switches to list view, remembers it, and navigates from the sidebar", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem("serverui-files-view");
+
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+
+    expect(await screen.findByRole("listbox", { name: "Files" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "List view" }));
+    expect(screen.getByText("Date Modified")).toBeInTheDocument();
+    expect(localStorage.getItem("serverui-files-view")).toBe("list");
+
+    const places = screen.getByRole("navigation", { name: "Places" });
+    expect(places).toHaveTextContent("Prod");
+    await user.click(screen.getByRole("button", { name: "tmp" }));
+    await waitFor(() => expect(listFilesMock).toHaveBeenCalledWith("srv-1", "/tmp"));
+    localStorage.removeItem("serverui-files-view");
+  });
+
+  it("opens the context menu at the cursor, outside the window's layout", async () => {
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+
+    const item = await screen.findByRole("option", { name: "beta.txt" });
+    fireEvent.contextMenu(item, { clientX: 140, clientY: 120 });
+
+    const menu = screen.getByRole("menu", { name: "File actions" });
+    // Rendered on <body> so position: fixed is relative to the viewport, not
+    // to the window (whose backdrop-filter would otherwise offset it).
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu).toHaveStyle({ left: "140px", top: "120px" });
+  });
+
+  it("opens the user's real home directory from the sidebar", async () => {
+    const user = userEvent.setup();
+    listFilesMock.mockImplementation(async (_serverId: string, path: string) =>
+      path === "~" ? { path: "/root", entries: [] } : { path: "/", entries: mockEntries },
+    );
+
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+    expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
+
+    // Home asks the server for "~" instead of guessing /home/<user>.
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    await waitFor(() => expect(listFilesMock).toHaveBeenCalledWith("srv-1", "~"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page"),
+    );
+    expect(screen.getByRole("heading", { name: "root" })).toBeInTheDocument();
   });
 });

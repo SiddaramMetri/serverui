@@ -1,9 +1,9 @@
 export const DOCK_ICON_SIZE = 48;
 export const DOCK_ICON_COMPACT = 38;
-export const DOCK_GAP = 16;
-export const DOCK_GAP_COMPACT = 10;
-export const DOCK_PAD_X = 20;
-export const DOCK_PAD_Y = 14;
+export const DOCK_GAP = 6;
+export const DOCK_GAP_COMPACT = 4;
+export const DOCK_PAD_X = 6;
+export const DOCK_PAD_Y = 5;
 export const DOCK_MAG_RANGE = 108;
 export const DOCK_MAG_MAX = 1.55;
 

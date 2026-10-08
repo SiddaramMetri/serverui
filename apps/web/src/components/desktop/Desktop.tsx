@@ -80,7 +80,8 @@ function DesktopShell() {
   }
 
   function isChrome(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) return false;
+    // Element, not HTMLElement: clicks on SVG icons inside windows count too.
+    if (!(target instanceof Element)) return false;
     return Boolean(
       target.closest('[role="dialog"]') ||
       target.closest('[role="menu"]') ||
@@ -104,7 +105,7 @@ function DesktopShell() {
     if (!chrome) {
       clearFocus();
     }
-    if (!(event.target instanceof HTMLElement && event.target.closest('[role="menu"]'))) {
+    if (!(event.target instanceof Element && event.target.closest('[role="menu"]'))) {
       setMenu(null);
     }
   }
