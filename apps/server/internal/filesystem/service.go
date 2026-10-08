@@ -101,6 +101,21 @@ func (s *Service) List(serverID, rawPath string) ([]Entry, error) {
 	return entries, nil
 }
 
+// Home returns the SSH user's home directory (the SFTP session's starting
+// directory), e.g. /root for root rather than /home/root.
+func (s *Service) Home(serverID string) (string, error) {
+	client, err := s.client(serverID)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+	home, err := client.Getwd()
+	if err != nil {
+		return "", mapFSError(err)
+	}
+	return home, nil
+}
+
 func (s *Service) Read(serverID, rawPath string) (string, error) {
 	preview, err := s.Preview(serverID, rawPath)
 	if err != nil {

@@ -1,6 +1,8 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { isArchive, type FileEntry } from "@/src/lib/api/files";
+import { PageLayer } from "@/src/components/window/window-chrome";
 
 export type FileMenuActions = {
   onOpen: () => void;
@@ -16,6 +18,9 @@ export type FileMenuActions = {
   onCompress: () => void;
   onExtractHere: () => void;
   onExtractTo: () => void;
+  onNewFolder: () => void;
+  onNewFile: () => void;
+  onUpload: () => void;
 };
 
 type FileContextMenuProps = FileMenuActions & {
@@ -29,7 +34,14 @@ type FileContextMenuProps = FileMenuActions & {
   onClose: () => void;
 };
 
-type Item = { label: string; run: () => void; disabled?: boolean } | "separator";
+export type MenuAction = {
+  label: string;
+  run: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+};
+
+export type MenuEntry = MenuAction | "separator";
 
 export function menuItems({
   entry,
@@ -37,11 +49,15 @@ export function menuItems({
   canPaste,
   extracting = false,
   ...a
-}: Omit<FileContextMenuProps, "x" | "y" | "onClose">): Item[] {
+}: Omit<FileContextMenuProps, "x" | "y" | "onClose">): MenuEntry[] {
   if (!entry) {
     return [
       { label: "Open Terminal", run: a.onTerminalHere },
       { label: "Paste", run: a.onPaste, disabled: !canPaste },
+      "separator",
+      { label: "New Folder", run: a.onNewFolder },
+      { label: "New File", run: a.onNewFile },
+      { label: "Upload…", run: a.onUpload },
     ];
   }
 
@@ -83,22 +99,51 @@ export function menuItems({
 
 export function FileContextMenu({ x, y, onClose, ...props }: FileContextMenuProps) {
   return (
+    <PageLayer>
+      <MenuList
+        label="File actions"
+        actions={menuItems(props)}
+        onClose={onClose}
+        className="fixed"
+        style={{ left: x, top: y }}
+      />
+    </PageLayer>
+  );
+}
+
+/** macOS-style menu body shared by the context menu and the toolbar's more menu. */
+export function MenuList({
+  label,
+  actions,
+  onClose,
+  className = "",
+  style,
+}: {
+  label: string;
+  actions: MenuEntry[];
+  onClose: () => void;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
     <div
       role="menu"
-      aria-label="File actions"
-      className="sui-menu fixed z-[80] min-w-48 overflow-hidden rounded-xl border py-1 text-sm shadow-2xl animate-menu-in backdrop-blur-xl"
-      style={{ left: x, top: y }}
+      aria-label={label}
+      className={`sui-menu z-[80] min-w-52 overflow-hidden rounded-[10px] border p-1 text-[13px] shadow-2xl animate-menu-in backdrop-blur-xl ${className}`}
+      style={style}
     >
-      {menuItems(props).map((item, index) =>
+      {actions.map((item, index) =>
         item === "separator" ? (
-          <div key={`sep-${index}`} className="my-1 h-px bg-black/8 dark:bg-white/10" />
+          <div key={`separator-${index}`} className="mx-2 my-1 h-px bg-black/10 dark:bg-white/10" />
         ) : (
           <button
             key={item.label}
             type="button"
             role="menuitem"
             disabled={item.disabled}
-            className="block w-full px-3 py-1.5 text-left outline-none hover:bg-sky-500 hover:text-white focus-visible:bg-sky-500 focus-visible:text-white disabled:pointer-events-none disabled:opacity-40"
+            className={`block w-full rounded-[5px] px-2.5 py-[3px] text-left outline-none enabled:hover:bg-[var(--finder-accent)] enabled:hover:text-white focus-visible:bg-[var(--finder-accent)] focus-visible:text-white disabled:opacity-40 ${
+              item.destructive ? "text-red-500" : ""
+            }`}
             onClick={() => {
               item.run();
               onClose();

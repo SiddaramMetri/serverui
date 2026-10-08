@@ -96,6 +96,11 @@ vi.mock("@/src/lib/api/server-context", () => ({
   useServer: () => ({ server: { username: "deploy" } }),
 }));
 
+// Most tests here drive the list view (rows are <tr>); Finder icon-view tests set their own view.
+beforeEach(() => {
+  localStorage.setItem("serverui-files-view", "list");
+});
+
 describe("FilesApp multi-select", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,21 +134,22 @@ describe("FilesApp multi-select", () => {
     // Select alpha.txt
     fireEvent.mouseDown(rowAlpha, { clientX: 10, clientY: 10 });
     fireEvent.mouseUp(rowAlpha, { clientX: 10, clientY: 10 });
-    expect(screen.getAllByText("1 item selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/1 of 3 selected/)).toBeInTheDocument();
 
     // Ctrl+Click beta.txt
     fireEvent.mouseDown(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
     fireEvent.mouseUp(rowBeta, { clientX: 10, clientY: 20, ctrlKey: true });
-    expect(screen.getAllByText("2 items selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/2 of 3 selected/)).toBeInTheDocument();
 
     // Clear selection
-    const clearBtn = screen.getByRole("button", { name: "Clear" });
-    await user.click(clearBtn);
+    // Clear selection from the toolbar's more menu
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Clear Selection" }));
 
-    expect(screen.queryByText("2 items selected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 of 3 selected/)).not.toBeInTheDocument();
   });
 
-  it("selects all items via toolbar Select all", async () => {
+  it("selects all items via the toolbar more menu", async () => {
     const user = userEvent.setup();
 
     render(
@@ -154,10 +160,10 @@ describe("FilesApp multi-select", () => {
 
     expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 
-    const selectAllBtn = screen.getByRole("button", { name: "Select all" });
-    await user.click(selectAllBtn);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Select All" }));
 
-    expect(screen.getAllByText("3 items selected").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/3 of 3 selected/)).toBeInTheDocument();
     expect(screen.getByText("alpha.txt").closest("tr")).toHaveClass("sui-selected");
     expect(screen.getByText("beta.txt").closest("tr")).toHaveClass("sui-selected");
     expect(screen.getByText("gamma_folder").closest("tr")).toHaveClass("sui-selected");
@@ -533,5 +539,74 @@ describe("FilesApp archive extraction", () => {
         POLL_WAIT,
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("FilesApp Finder layout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem("serverui-files-view");
+    listFilesMock.mockResolvedValue({ path: "/", entries: mockEntries });
+  });
+
+  it("switches to list view, remembers it, and navigates from the sidebar", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem("serverui-files-view");
+
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+
+    expect(await screen.findByRole("listbox", { name: "Files" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "List view" }));
+    expect(screen.getByText("Date Modified")).toBeInTheDocument();
+    expect(localStorage.getItem("serverui-files-view")).toBe("list");
+
+    const places = screen.getByRole("navigation", { name: "Places" });
+    expect(places).toHaveTextContent("Prod");
+    await user.click(screen.getByRole("button", { name: "tmp" }));
+    await waitFor(() => expect(listFilesMock).toHaveBeenCalledWith("srv-1", "/tmp"));
+    localStorage.removeItem("serverui-files-view");
+  });
+
+  it("opens the context menu at the cursor, outside the window's layout", async () => {
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+
+    const item = await screen.findByRole("option", { name: "beta.txt" });
+    fireEvent.contextMenu(item, { clientX: 140, clientY: 120 });
+
+    const menu = screen.getByRole("menu", { name: "File actions" });
+    // Rendered on <body> so position: fixed is relative to the viewport, not
+    // to the window (whose backdrop-filter would otherwise offset it).
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu).toHaveStyle({ left: "140px", top: "120px" });
+  });
+
+  it("opens the user's real home directory from the sidebar", async () => {
+    const user = userEvent.setup();
+    listFilesMock.mockImplementation(async (_serverId: string, path: string) =>
+      path === "~" ? { path: "/root", entries: [] } : { path: "/", entries: mockEntries },
+    );
+
+    render(
+      <WindowManagerProvider>
+        <FilesApp />
+      </WindowManagerProvider>,
+    );
+    expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
+
+    // Home asks the server for "~" instead of guessing /home/<user>.
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    await waitFor(() => expect(listFilesMock).toHaveBeenCalledWith("srv-1", "~"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page"),
+    );
+    expect(screen.getByRole("heading", { name: "root" })).toBeInTheDocument();
   });
 });

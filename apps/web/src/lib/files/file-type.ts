@@ -5,7 +5,19 @@ const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "a
 const VIDEO_EXT = new Set(["mp4", "webm", "ogv", "mov", "m4v"]);
 const AUDIO_EXT = new Set(["mp3", "wav", "m4a", "aac", "flac", "oga", "ogg"]);
 const PDF_EXT = new Set(["pdf"]);
-const ARCHIVE_EXT = new Set(["zip", "tar", "gz", "tgz", "rar", "7z"]);
+const ARCHIVE_EXT = new Set([
+  "zip",
+  "tar",
+  "gz",
+  "tgz",
+  "bz2",
+  "tbz",
+  "tbz2",
+  "xz",
+  "txz",
+  "rar",
+  "7z",
+]);
 const DOCUMENT_EXT = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods"]);
 const TEXT_EXT = new Set([
   "txt",

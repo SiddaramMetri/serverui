@@ -17,6 +17,9 @@ const actions: FileMenuActions = {
   onCompress: noop,
   onExtractHere: noop,
   onExtractTo: noop,
+  onNewFolder: noop,
+  onNewFile: noop,
+  onUpload: noop,
 };
 
 function entry(name: string, type: "file" | "dir" = "file"): FileEntry {
@@ -66,11 +69,15 @@ describe("file context menu", () => {
     expect(items).toContain("Download");
   });
 
-  it("shows Open Terminal and Paste on empty space, Paste disabled when nothing to paste", () => {
+  it("shows Open Terminal, Paste and create actions on empty space, Paste disabled when nothing to paste", () => {
     const empty = menuItems({ ...actions, entry: null, canPaste: false });
     expect(empty.map((item) => (item === "separator" ? "-" : item.label))).toEqual([
       "Open Terminal",
       "Paste",
+      "-",
+      "New Folder",
+      "New File",
+      "Upload…",
     ]);
     expect(empty[1]).toMatchObject({ disabled: true });
     expect(menuItems({ ...actions, entry: null, canPaste: true })[1]).toMatchObject({
