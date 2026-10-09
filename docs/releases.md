@@ -13,7 +13,7 @@ intentional GitHub Releases process for the ServerUI desktop application.
 | Go sidecar | `externalBin: binaries/serverui-server` + `prepare-sidecar.sh` |
 | Product name | `ServerUI` |
 | Identifier | `com.serverui.desktop` (stable; do not change casually) |
-| Version | `0.1.0` in tauri.conf / Cargo / package.json |
+| Version | `0.1.0` in tauri.conf / Cargo / package.json at snapshot time (current: `0.2.0`) |
 | Icons | Present (`png` / `icns` / `ico`); brand mark with white OS-tile background |
 | Bundle targets | `dmg`, `nsis`, `msi`, `appimage`, `deb` (no RPM); optional Store **MSIX** via WinApp CLI (see [microsoft-store-msix.md](microsoft-store-msix.md)) |
 | Signing | Prepared via CI secrets; absent → unsigned (documented) |
@@ -38,7 +38,7 @@ Releases are deliberate. Do **not** auto-bump on every commit.
 Release tags must match the conf version:
 
 ```text
-v0.1.0  →  tauri.conf.json version "0.1.0"
+v0.2.0  →  tauri.conf.json version "0.2.0"
 ```
 
 The release workflow refuses mismatched tags.

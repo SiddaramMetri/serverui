@@ -140,7 +140,7 @@ Install it from [lazydocker](https://github.com/jesseduffield/lazydocker).
 ## Getting started
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/rakhechashubham/serverui.git
 cd serverui
 cp .env.example .env
 make setup-env
