@@ -1,6 +1,6 @@
 [package]
 name = "serverui-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "ServerUI desktop shell"
 authors = ["Skyrekon Private Limited"]
 edition = "2021"
