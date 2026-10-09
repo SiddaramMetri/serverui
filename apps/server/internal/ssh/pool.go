@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -38,6 +39,14 @@ func (p *Pool) Run(id, command string) ([]byte, error) {
 		return nil, err
 	}
 	return mgr.Run(command)
+}
+
+func (p *Pool) Stream(ctx context.Context, id, command string, onLine func(string)) ([]byte, error) {
+	mgr, err := p.Manager(id)
+	if err != nil {
+		return nil, err
+	}
+	return mgr.Stream(ctx, command, onLine)
 }
 
 func (p *Pool) Manager(id string) (*Manager, error) {

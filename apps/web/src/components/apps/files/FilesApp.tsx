@@ -1,22 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { ChevronLeft, ChevronRight, Home, Search } from "lucide-react";
 import { ApiError } from "@/src/lib/api/client";
 import {
+  ARCHIVE_FORMATS,
+  archiveStem,
+  archiveSuffix,
   baseName,
   buildMoveDestination,
+  cancelExtract,
+  compressItems,
+  copyItem,
   createDirectory,
   createFile,
   deleteFile,
-  downloadUrl,
+  getExtractJob,
+  isExtractFinished,
   isValidMove,
   joinPath,
   listFiles,
+  moveItem,
   parentPath,
   renameFile,
+  resolveExtract,
+  startExtract,
   suggestUniqueName,
   uploadFile,
+  type ArchiveFormat,
+  type ConflictPolicy,
+  type ExtractJob,
   type FileEntry,
 } from "@/src/lib/api/files";
 import { useWindowManager, type WindowPayload } from "@/src/components/window/window-context";
@@ -25,14 +37,37 @@ import { useServer } from "@/src/lib/api/server-context";
 import { useSelectedServer } from "@/src/lib/session";
 import { formatSize, totalSize } from "@/src/lib/files/format";
 import { Breadcrumbs } from "@/src/components/apps/files/Breadcrumbs";
+import { DownloadPanel, useDownloadQueue } from "@/src/components/apps/files/DownloadQueue";
 import { FileContextMenu } from "@/src/components/apps/files/FileContextMenu";
+import { FileGrid } from "@/src/components/apps/files/FileGrid";
 import { FileList } from "@/src/components/apps/files/FileList";
-import { FileToolbar, toolbarClass } from "@/src/components/apps/files/FileToolbar";
+import { FileToolbar, toolbarClass, type FilesView } from "@/src/components/apps/files/FileToolbar";
+import { FilesSidebar } from "@/src/components/apps/files/FilesSidebar";
 
 type Dialog =
   | { type: "file"; value: string }
   | { type: "dir"; value: string }
-  | { type: "rename"; value: string; from: string };
+  | { type: "rename"; value: string; from: string }
+  | { type: "extract"; value: string; archive: FileEntry };
+
+const DIALOG_TEXT: Record<Dialog["type"], { label: string; submit: string }> = {
+  dir: { label: "Folder name", submit: "Create" },
+  file: { label: "File name", submit: "Create" },
+  rename: { label: "Rename", submit: "Rename" },
+  extract: { label: "Extract to", submit: "Extract" },
+};
+
+const EXTRACT_POLL_MS = 750;
+const HOME_PATH = "~";
+const VIEW_STORAGE_KEY = "serverui-files-view";
+
+function readStoredView(): FilesView {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "icons";
+  } catch {
+    return "icons";
+  }
+}
 
 type MenuState = {
   x: number;
@@ -47,6 +82,24 @@ type PendingMove = {
   name: string;
   destNames: string[];
 };
+
+type Clipboard = { mode: "copy" | "cut"; items: FileEntry[] };
+
+type PendingPaste = { items: FileEntry[]; conflicts: FileEntry[] };
+
+type CompressState = {
+  items: FileEntry[];
+  name: string;
+  format: ArchiveFormat;
+  conflict: boolean;
+  busy: boolean;
+};
+
+function withArchiveExt(name: string, format: ArchiveFormat) {
+  const ext = ARCHIVE_FORMATS.find((f) => f.id === format)!.ext;
+  const suffix = archiveSuffix(name);
+  return (suffix ? name.slice(0, -suffix.length) : name) + ext;
+}
 
 export function FilesApp({ payload }: { payload?: WindowPayload }) {
   const { openWindow } = useWindowManager();
@@ -69,18 +122,31 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     total: number;
     name: string;
   } | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<{
+  const [notice, setNotice] = useState<{
     type: "info" | "success" | "error";
     message: string;
+    downloadPath?: string;
   } | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [clipboard, setClipboard] = useState<Clipboard | null>(null);
+  const [pendingPaste, setPendingPaste] = useState<PendingPaste | null>(null);
+  const [compress, setCompress] = useState<CompressState | null>(null);
+  const [folderDownload, setFolderDownload] = useState<FileEntry[] | null>(null);
+  // The job as started; ExtractStatus owns its live progress so polling only
+  // re-renders the banner, not every row of the folder.
+  const [extractJob, setExtractJob] = useState<ExtractJob | null>(null);
+  const [extractBusy, setExtractBusy] = useState(false);
+  const [view, setView] = useState<FilesView>(readStoredView);
   const uploadRef = useRef<HTMLInputElement>(null);
+  // The folder on screen, read when a background extraction finishes.
+  const pathRef = useRef(path);
+  const compressInputRef = useRef<HTMLInputElement>(null);
   const serverId = selectedServer?.id || "";
-  const homePath =
-    selectedServer?.username || server?.username
-      ? `/home/${selectedServer?.username || server?.username}`
-      : "/home";
+  const downloads = useDownloadQueue(serverId);
+  // The server resolves "~" to the user's real home (e.g. /root for root);
+  // remember it so the sidebar can highlight Home.
+  const [homeDir, setHomeDir] = useState<string | null>(null);
 
   async function load(nextPath: string) {
     if (!serverId) return;
@@ -88,6 +154,7 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     setError(null);
     try {
       const result = await listFiles(serverId, nextPath);
+      if (nextPath === HOME_PATH) setHomeDir(result.path);
       const sorted = [...result.entries].sort((a, b) => {
         if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -101,6 +168,10 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    pathRef.current = path;
+  }, [path]);
 
   useEffect(() => {
     if (!serverId) return;
@@ -143,7 +214,7 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     setQuery("");
     setPath(normalized);
     setMenu(null);
-    setDownloadStatus(null);
+    setNotice(null);
     setPendingMove(null);
     void load(normalized);
   }
@@ -154,7 +225,7 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     setHistoryIndex(nextIndex);
     clearSelection();
     setPath(history[nextIndex]);
-    setDownloadStatus(null);
+    setNotice(null);
     void load(history[nextIndex]);
   }
 
@@ -164,7 +235,7 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     setHistoryIndex(nextIndex);
     clearSelection();
     setPath(history[nextIndex]);
-    setDownloadStatus(null);
+    setNotice(null);
     void load(history[nextIndex]);
   }
 
@@ -275,6 +346,12 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
   async function submitDialog() {
     if (!dialog || !dialog.value.trim()) return;
     const name = dialog.value.trim();
+    if (dialog.type === "extract") {
+      const destination = name.startsWith("/") ? name : joinPath(path, name);
+      setDialog(null);
+      await onExtract(dialog.archive, "to", destination);
+      return;
+    }
     try {
       if (dialog.type === "file") {
         await createFile(serverId, joinPath(path, name));
@@ -334,60 +411,215 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     await load(path);
   }
 
-  async function onDownloadSelected(itemsToDownload: FileEntry[]) {
+  // Folders are never downloaded directly: the user is told up front and offered compression instead.
+  function onDownloadSelected(itemsToDownload: FileEntry[]) {
     if (!itemsToDownload || itemsToDownload.length === 0) return;
-
-    const files = itemsToDownload.filter((e) => e.type === "file");
-    const dirs = itemsToDownload.filter((e) => e.type === "dir");
-
-    if (files.length === 0 && dirs.length > 0) {
-      setDownloadStatus({
-        type: "error",
-        message:
-          dirs.length === 1
-            ? `Folder “${dirs[0].name}” cannot be downloaded directly with the current download architecture.`
-            : `Folders cannot be downloaded directly with the current download architecture (${dirs.length} folders selected).`,
-      });
+    if (itemsToDownload.some((e) => e.type === "dir")) {
+      setFolderDownload(itemsToDownload);
       return;
     }
+    downloads.start(itemsToDownload);
+  }
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setDownloadStatus({
+  function errorMessage(err: unknown, fallback: string) {
+    return err instanceof ApiError ? err.message : fallback;
+  }
+
+  function copyToClipboard(mode: Clipboard["mode"], items: FileEntry[]) {
+    if (items.length === 0) return;
+    setClipboard({ mode, items });
+    const what = items.length === 1 ? `“${items[0].name}”` : `${items.length} items`;
+    setNotice({
+      type: "info",
+      message: `${mode === "copy" ? "Copied" : "Cut"} ${what}. Open the destination folder and choose Paste.`,
+    });
+  }
+
+  function paste() {
+    if (!clipboard) return;
+    const { mode } = clipboard;
+    // Cutting into the folder the items already live in is a no-op.
+    const items = clipboard.items.filter(
+      (item) => !(mode === "cut" && parentPath(item.path) === path),
+    );
+    if (items.length === 0) {
+      setNotice({ type: "info", message: "The items are already in this folder." });
+      return;
+    }
+    const nested = items.find(
+      (item) => item.type === "dir" && (path === item.path || path.startsWith(`${item.path}/`)),
+    );
+    if (nested) {
+      setError(`cannot paste “${nested.name}” into itself`);
+      return;
+    }
+    const names = entries.map((e) => e.name);
+    // A copy into its own folder is a duplicate, never a conflict: it always keeps both.
+    const conflicts = items.filter(
+      (item) => names.includes(item.name) && parentPath(item.path) !== path,
+    );
+    if (conflicts.length > 0) {
+      setPendingPaste({ items, conflicts });
+      return;
+    }
+    void runPaste(items, "keep");
+  }
+
+  async function runPaste(items: FileEntry[], resolution: "replace" | "keep") {
+    if (!clipboard) return;
+    const { mode } = clipboard;
+    const op = mode === "copy" ? copyItem : moveItem;
+    const verb = mode === "copy" ? "Copying" : "Moving";
+    const taken = entries.map((e) => e.name);
+    const failed: FileEntry[] = [];
+    const errors: string[] = [];
+    setPendingPaste(null);
+    setError(null);
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let name = item.name;
+      let overwrite = false;
+      if (taken.includes(name)) {
+        if (resolution === "replace" && parentPath(item.path) !== path) overwrite = true;
+        else name = suggestUniqueName(taken, name);
+      }
+      taken.push(name);
+      setNotice({
         type: "info",
-        message:
-          files.length > 1
-            ? `Downloading ${i + 1} of ${files.length}: “${file.name}”…`
-            : `Downloading “${file.name}”…`,
+        message: `${verb} ${items.length > 1 ? `${i + 1} of ${items.length}: ` : ""}“${item.name}”…`,
       });
-
-      const url = downloadUrl(serverId, file.path);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.name;
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      if (i < files.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
+      try {
+        await op(serverId, item.path, joinPath(path, name), overwrite);
+      } catch (err) {
+        failed.push(item);
+        errors.push(`“${item.name}”: ${errorMessage(err, "operation failed")}`);
       }
     }
 
-    const skippedText =
-      dirs.length > 0
-        ? ` (${dirs.length} ${dirs.length === 1 ? "folder" : "folders"} skipped: folders cannot be downloaded directly)`
-        : "";
+    // A cut stays on the clipboard only for the items that failed to move.
+    if (mode === "cut") setClipboard(failed.length > 0 ? { mode, items: failed } : null);
+    const done = items.length - failed.length;
+    if (errors.length > 0) {
+      setNotice(null);
+      setError(
+        `${done > 0 ? `${mode === "copy" ? "Copied" : "Moved"} ${done} of ${items.length} items. ` : ""}Failed: ${errors.join(", ")}`,
+      );
+    } else {
+      setNotice({
+        type: "success",
+        message: `${mode === "copy" ? "Copied" : "Moved"} ${items.length} ${items.length === 1 ? "item" : "items"}.`,
+      });
+    }
+    clearSelection();
+    await load(path);
+  }
 
-    setDownloadStatus({
-      type: "success",
-      message: `Downloaded ${files.length} ${files.length === 1 ? "file" : "files"}${skippedText}.`,
+  function openCompress(items: FileEntry[]) {
+    if (items.length === 0) return;
+    setFolderDownload(null);
+    const base = items.length === 1 ? items[0].name : "Archive";
+    setCompress({
+      items,
+      name: withArchiveExt(base, "zip"),
+      format: "zip",
+      conflict: false,
+      busy: false,
     });
+  }
 
-    setTimeout(() => {
-      setDownloadStatus((current) => (current?.type === "success" ? null : current));
-    }, 4000);
+  async function submitCompress(overwrite: boolean) {
+    if (!compress || !compress.name.trim() || compress.busy) return;
+    const { items, format } = compress;
+    const name = withArchiveExt(compress.name.trim(), format);
+    setCompress({ ...compress, name, busy: true, conflict: false });
+    setError(null);
+    setNotice({
+      type: "info",
+      message: `Compressing ${items.length === 1 ? `“${items[0].name}”` : `${items.length} items`} into “${name}”… Large folders can take a while.`,
+    });
+    try {
+      const result = await compressItems(
+        serverId,
+        path,
+        items.map((item) => item.name),
+        name,
+        format,
+        overwrite,
+      );
+      setCompress(null);
+      setNotice({
+        type: "success",
+        message: `Created “${baseName(result.path)}”.`,
+        downloadPath: result.path,
+      });
+      await load(path);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setNotice(null);
+        setCompress({ ...compress, name, busy: false, conflict: true });
+        return;
+      }
+      setNotice(null);
+      const message = errorMessage(err, "operation failed");
+      // zip and 7z are often missing on minimal servers; tar.gz always works, so offer it in one click.
+      if (message.includes("is not installed") && format !== "tar.gz") {
+        setCompress({
+          ...compress,
+          name: withArchiveExt(name, "tar.gz"),
+          format: "tar.gz",
+          busy: false,
+        });
+        setError(
+          `Compression failed: ${message}. Switched to TAR.GZ, which works on any Linux server: press Compress again.`,
+        );
+        return;
+      }
+      setCompress({ ...compress, name, busy: false });
+      setError(`Compression failed: ${message}`);
+    }
+  }
+
+  async function onExtract(entry: FileEntry, mode: "here" | "to", destination?: string) {
+    setError(null);
+    try {
+      const job = await startExtract(serverId, entry.path, mode, destination);
+      setExtractJob(job);
+      setExtractBusy(!isExtractFinished(job.state));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `unable to extract ${entry.name}`);
+    }
+  }
+
+  async function showExtracted(job: ExtractJob) {
+    const here = pathRef.current;
+    const prefix = here === "/" ? "/" : `${here}/`;
+    if (job.destination !== here && !job.destination.startsWith(prefix)) return;
+    await load(here);
+    const inView = job.extracted.filter((item) => parentPath(item) === here);
+    if (inView.length > 0) {
+      setSelectedPaths(new Set(inView));
+      setLastSelectedPath(inView[inView.length - 1]);
+    }
+  }
+  function onExtractFinished(job: ExtractJob) {
+    setExtractBusy(false);
+    if (job.state === "done") void showExtracted(job);
+  }
+
+  function downloadCreated(archivePath: string) {
+    const entry = entries.find((e) => e.path === archivePath);
+    downloads.start([
+      entry ?? {
+        name: baseName(archivePath),
+        path: archivePath,
+        type: "file",
+        size: 0,
+        mode: "",
+        modified: "",
+      },
+    ]);
+    setNotice(null);
   }
 
   async function onUpload(fileList: globalThis.FileList | null) {
@@ -443,7 +675,9 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
               pendingMove.destDir,
               suggestUniqueName(pendingMove.destNames, pendingMove.name),
             );
-      await renameFile(serverId, pendingMove.from, to);
+      // SFTP rename refuses an existing target, so Replace goes through the server-side move.
+      if (mode === "replace") await moveItem(serverId, pendingMove.from, to, true);
+      else await renameFile(serverId, pendingMove.from, to);
       setPendingMove(null);
       clearSelection();
       await load(path);
@@ -462,7 +696,7 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
       }
     }
     const width = 210;
-    const height = 180;
+    const height = 360;
     setMenu({
       x: Math.min(event.clientX, window.innerWidth - width - 8),
       y: Math.min(event.clientY, window.innerHeight - height - 8),
@@ -470,9 +704,34 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     });
   }
 
+  function menuTargets(entry: FileEntry | null) {
+    if (selectedEntries.length > 1) return selectedEntries;
+    return entry ? [entry] : [];
+  }
+
   function copyPath(value: string) {
     void navigator.clipboard.writeText(value);
   }
+
+  /** Copies every selected path when several are selected, otherwise `single`. */
+  function copySelectionPaths(single: string) {
+    copyPath(
+      selectedEntries.length > 1 ? selectedEntries.map((entry) => entry.path).join("\n") : single,
+    );
+  }
+
+  function changeView(next: FilesView) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // The view is a per-viewer convenience; ignore unavailable storage.
+    }
+  }
+
+  const newFolder = () => setDialog({ type: "dir", value: "" });
+  const newFile = () => setDialog({ type: "file", value: "" });
+  const pickUpload = () => uploadRef.current?.click();
 
   function openInfo(entry: FileEntry | null) {
     const target = entry;
@@ -493,17 +752,32 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
     openWindow("terminal", { cwd });
   }
 
-  const places = [
-    { label: "Root", path: "/" },
-    { label: "Home", path: homePath },
-    { label: "tmp", path: "/tmp" },
-    { label: "etc", path: "/etc" },
-    { label: "var", path: "/var" },
-  ];
+  const viewProps = {
+    path,
+    entries: visible,
+    selectedPaths,
+    onSelect: handleRowSelect,
+    onToggleSelect: toggleSelect,
+    onSelectRange: selectRange,
+    onSelectionChange: handleSelectionChange,
+    onClearSelection: clearSelection,
+    onOpen: openEntry,
+    onContextMenu: openContextMenu,
+    onMove: (source: string, dest: string, type: "file" | "dir") =>
+      void handleMove(source, dest, type),
+  };
+  const serverName = selectedServer?.name || server?.hostname || "Server";
+  const title = path === "/" ? serverName : baseName(path);
+  const statusText =
+    selectedEntries.length > 0
+      ? `${selectedEntries.length} of ${visible.length} selected${
+          selectedTotalSize > 0 ? `, ${formatSize(selectedTotalSize)}` : ""
+        }`
+      : `${visible.length} ${visible.length === 1 ? "item" : "items"}, ${formatSize(totalSize(visible))}`;
 
   return (
     <div
-      className="flex h-full min-h-0 overflow-hidden sui-app"
+      className="sui-finder flex h-full min-h-0 overflow-hidden"
       onClick={() => setMenu(null)}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement;
@@ -511,9 +785,17 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
           return;
         }
 
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        const meta = event.ctrlKey || event.metaKey;
+        const key = event.key.toLowerCase();
+        if (meta && key === "a") {
           event.preventDefault();
           selectAll();
+        } else if (meta && (key === "c" || key === "x") && selectedEntries.length > 0) {
+          event.preventDefault();
+          copyToClipboard(key === "c" ? "copy" : "cut", selectedEntries);
+        } else if (meta && key === "v" && clipboard) {
+          event.preventDefault();
+          paste();
         } else if (event.key === "Escape") {
           event.preventDefault();
           clearSelection();
@@ -530,76 +812,29 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
         }
       }}
     >
-      <aside className="sui-sidebar flex w-[188px] shrink-0 flex-col overflow-y-auto px-3 py-4 text-[12px]">
-        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] sui-muted">
-          Favorites
-        </p>
-        {places.map((place) => (
-          <button
-            key={place.path}
-            type="button"
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none sui-hover focus-visible:ring-2 focus-visible:ring-sky-400 ${
-              path === place.path ? "sui-selected" : ""
-            }`}
-            onClick={() => goTo(place.path)}
-          >
-            <Home aria-hidden className="size-3.5 opacity-80" />
-            {place.label}
-          </button>
-        ))}
-      </aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col sui-app">
-        <div className="sui-toolbar flex items-center gap-2 border-b sui-hairline px-3 py-2">
-          <button
-            type="button"
-            aria-label="Back"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-30"
-            onClick={back}
-            disabled={historyIndex <= 0}
-          >
-            <ChevronLeft aria-hidden className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Forward"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-30"
-            onClick={forward}
-            disabled={historyIndex >= history.length - 1}
-          >
-            <ChevronRight aria-hidden className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Home"
-            className="sui-hover rounded-md p-1 sui-muted outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            onClick={() => goTo(homePath)}
-          >
-            <Home aria-hidden className="size-4" />
-          </button>
-          <Breadcrumbs
-            path={path}
-            onNavigate={goTo}
-            onMove={(source, dest) => void handleMove(source, dest)}
-          />
-          <label className="relative shrink-0">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2 top-1.5 size-3.5 sui-muted"
-            />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="sui-input w-36 rounded-md py-1 pl-7 pr-2 text-[12px] outline-none focus:ring-2 focus:ring-sky-400"
-            />
-          </label>
-        </div>
+      <FilesSidebar
+        path={path}
+        homePath={homeDir ?? HOME_PATH}
+        serverName={serverName}
+        onNavigate={goTo}
+      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--finder-content)]">
         <FileToolbar
-          selectedEntries={selectedEntries}
-          totalCount={visible.length}
+          title={title}
+          canGoBack={historyIndex > 0}
+          canGoForward={historyIndex < history.length - 1}
+          onBack={back}
+          onForward={forward}
+          view={view}
+          onViewChange={changeView}
+          selectedCount={selectedEntries.length}
+          query={query}
+          onQueryChange={setQuery}
+          onUploadClick={pickUpload}
+          onNewFolder={newFolder}
+          onNewFile={newFile}
           onOpen={openSelected}
-          onDownload={() => void onDownloadSelected(selectedEntries)}
-          onUploadClick={() => uploadRef.current?.click()}
+          onDownload={() => onDownloadSelected(selectedEntries)}
           onRename={() =>
             singleSelectedEntry &&
             setDialog({
@@ -611,6 +846,8 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
           onDelete={() => selectedEntries.length > 0 && setPendingDelete(selectedEntries)}
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
+          onCopyPath={() => copySelectionPaths(path)}
+          onTerminalHere={() => openTerminalHere(null)}
         />
         <input
           ref={uploadRef}
@@ -621,37 +858,39 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
             event.target.value = "";
           }}
         />
-        <div className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]">
-          <button
-            type="button"
-            className={toolbarClass}
-            onClick={() => setDialog({ type: "file", value: "" })}
-          >
-            New file
-          </button>
-          <button
-            type="button"
-            className={toolbarClass}
-            onClick={() => setDialog({ type: "dir", value: "" })}
-          >
-            New folder
-          </button>
-        </div>
+        {clipboard ? (
+          <div className="sui-finder-sheet flex items-center gap-2 px-4 py-1.5 text-[12px]">
+            <span className="sui-finder-muted min-w-0 flex-1 truncate">
+              {clipboard.mode === "cut" ? "Cut" : "Copied"}{" "}
+              {clipboard.items.length === 1
+                ? `“${clipboard.items[0].name}”`
+                : `${clipboard.items.length} items`}
+            </span>
+            <button type="button" className={toolbarClass} onClick={paste}>
+              Paste{" "}
+              {clipboard.items.length === 1
+                ? `“${clipboard.items[0].name}”`
+                : `${clipboard.items.length} items`}
+            </button>
+            <button
+              type="button"
+              aria-label="Clear clipboard"
+              className={toolbarClass}
+              onClick={() => setClipboard(null)}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {dialog ? (
           <form
-            className="flex items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]"
+            className="sui-finder-sheet flex items-center gap-2 px-4 py-2 text-[12px]"
             onSubmit={(event) => {
               event.preventDefault();
               void submitDialog();
             }}
           >
-            <label className="text-neutral-500">
-              {dialog.type === "dir"
-                ? "Folder name"
-                : dialog.type === "file"
-                  ? "File name"
-                  : "Rename"}
-            </label>
+            <label className="sui-finder-muted">{DIALOG_TEXT[dialog.type].label}</label>
             <input
               autoFocus
               className="sui-input min-w-0 flex-1 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
@@ -659,33 +898,55 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
               onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
             />
             <button type="submit" className={toolbarClass}>
-              {dialog.type === "rename" ? "Rename" : "Create"}
+              {DIALOG_TEXT[dialog.type].submit}
             </button>
             <button type="button" className={toolbarClass} onClick={() => setDialog(null)}>
               Cancel
             </button>
           </form>
         ) : null}
-        {downloadStatus ? (
+        {notice ? (
           <div
             className={`flex items-center justify-between border-b px-4 py-2 text-[12px] ${
-              downloadStatus.type === "error"
+              notice.type === "error"
                 ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-300"
-                : downloadStatus.type === "success"
+                : notice.type === "success"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300"
                   : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-300"
             }`}
             role="status"
           >
-            <span className="min-w-0 flex-1">{downloadStatus.message}</span>
+            <span className="min-w-0 flex-1">{notice.message}</span>
+            {notice.downloadPath ? (
+              <button
+                type="button"
+                className="ml-2 text-xs font-semibold underline"
+                onClick={() => downloadCreated(notice.downloadPath!)}
+              >
+                Download
+              </button>
+            ) : null}
             <button
               type="button"
               className="ml-2 text-xs font-semibold opacity-70 hover:opacity-100"
-              onClick={() => setDownloadStatus(null)}
+              onClick={() => setNotice(null)}
             >
               Dismiss
             </button>
           </div>
+        ) : null}
+        {extractJob ? (
+          <ExtractStatus
+            key={extractJob.id}
+            serverId={serverId}
+            initial={extractJob}
+            onFinished={onExtractFinished}
+            onError={setError}
+            onDismiss={() => {
+              setExtractJob(null);
+              setExtractBusy(false);
+            }}
+          />
         ) : null}
         {error ? (
           <p
@@ -772,47 +1033,195 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
             </button>
           </div>
         ) : null}
+        {pendingPaste ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+            role="alertdialog"
+            aria-labelledby="paste-conflict-title"
+          >
+            <p id="paste-conflict-title" className="min-w-0 flex-1">
+              {pendingPaste.conflicts.length === 1 ? (
+                <>
+                  An item named{" "}
+                  <span className="font-medium">“{pendingPaste.conflicts[0].name}”</span> already
+                  exists.
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">{pendingPaste.conflicts.length} items</span> already
+                  exist in this folder. Your choice applies to all of them.
+                </>
+              )}
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setPendingPaste(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void runPaste(pendingPaste.items, "replace")}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => void runPaste(pendingPaste.items, "keep")}
+            >
+              Keep Both
+            </button>
+          </div>
+        ) : null}
+        {folderDownload ? (
+          <div
+            className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+            role="alertdialog"
+            aria-labelledby="folder-download-title"
+          >
+            <p id="folder-download-title" className="min-w-0 flex-1">
+              Folders can’t be downloaded directly. Compress the selection into one archive, then
+              download the archive.
+            </p>
+            <button type="button" className={toolbarClass} onClick={() => setFolderDownload(null)}>
+              Cancel
+            </button>
+            {folderDownload.some((e) => e.type === "file") ? (
+              <button
+                type="button"
+                className={toolbarClass}
+                onClick={() => {
+                  downloads.start(folderDownload.filter((e) => e.type === "file"));
+                  setFolderDownload(null);
+                }}
+              >
+                Download files only
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={toolbarClass}
+              onClick={() => openCompress(folderDownload)}
+            >
+              Compress…
+            </button>
+          </div>
+        ) : null}
+        {compress ? (
+          <form
+            className="flex flex-wrap items-center gap-2 border-b sui-hairline px-3 py-2 text-[12px]"
+            aria-label="Compress"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitCompress(false);
+            }}
+          >
+            <label htmlFor="compress-name" className="text-neutral-500">
+              Archive name
+            </label>
+            <input
+              id="compress-name"
+              ref={compressInputRef}
+              autoFocus
+              disabled={compress.busy}
+              className="sui-input min-w-0 flex-1 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
+              value={compress.name}
+              onChange={(event) =>
+                setCompress({ ...compress, name: event.target.value, conflict: false })
+              }
+            />
+            <label htmlFor="compress-format" className="text-neutral-500">
+              Format
+            </label>
+            <select
+              id="compress-format"
+              disabled={compress.busy}
+              className="sui-input rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-sky-400"
+              value={compress.format}
+              onChange={(event) => {
+                const format = event.target.value as ArchiveFormat;
+                setCompress({
+                  ...compress,
+                  format,
+                  name: withArchiveExt(compress.name, format),
+                  conflict: false,
+                });
+              }}
+            >
+              {ARCHIVE_FORMATS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            {compress.conflict ? (
+              <>
+                <span role="alert" className="w-full text-amber-800 dark:text-amber-300">
+                  “{compress.name}” already exists.
+                </span>
+                <button type="button" className={toolbarClass} onClick={() => setCompress(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  onClick={() => void submitCompress(true)}
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  onClick={() => {
+                    setCompress({ ...compress, conflict: false });
+                    compressInputRef.current?.focus();
+                    compressInputRef.current?.select();
+                  }}
+                >
+                  Choose another name
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={toolbarClass}
+                  disabled={compress.busy}
+                  onClick={() => setCompress(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className={toolbarClass} disabled={compress.busy}>
+                  {compress.busy ? "Compressing…" : "Compress"}
+                </button>
+              </>
+            )}
+          </form>
+        ) : null}
+        <DownloadPanel
+          items={downloads.items}
+          onRetry={downloads.retryFailed}
+          onDismiss={downloads.dismiss}
+        />
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <FileList
-            path={path}
-            entries={visible}
-            selectedPaths={selectedPaths}
-            onSelect={handleRowSelect}
-            onToggleSelect={toggleSelect}
-            onSelectRange={selectRange}
-            onSelectionChange={handleSelectionChange}
-            onSelectAll={selectAll}
-            onClearSelection={clearSelection}
-            onOpen={openEntry}
-            onParent={() => path !== "/" && goTo(parentPath(path))}
-            onContextMenu={openContextMenu}
-            onMove={(source, dest, type) => void handleMove(source, dest, type)}
-          />
+          {view === "icons" ? (
+            <FileGrid {...viewProps} />
+          ) : (
+            <FileList {...viewProps} onParent={() => path !== "/" && goTo(parentPath(path))} />
+          )}
+          {!loading && !error && visible.length === 0 ? (
+            <p className="sui-finder-muted pointer-events-none absolute inset-x-0 top-1/3 text-center text-[13px]">
+              {query.trim() ? `No items match “${query.trim()}”` : "This folder is empty"}
+            </p>
+          ) : null}
           {loading ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--app-bg)]/60 text-sm text-neutral-400">
+            <div className="sui-finder-muted pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--finder-content)]/60 text-[13px]">
               Loading files…
             </div>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center justify-between border-t sui-hairline px-4 py-1.5 text-[11px] sui-muted">
-          <span>
-            {selectedEntries.length > 0 ? (
-              <>
-                <span className="font-medium text-sky-600 dark:text-sky-400">
-                  {selectedEntries.length} {selectedEntries.length === 1 ? "item" : "items"}{" "}
-                  selected
-                </span>
-                {selectedTotalSize > 0 ? ` (${formatSize(selectedTotalSize)})` : ""}
-                <span className="mx-1.5 text-neutral-300 dark:text-neutral-600">|</span>
-                <span>
-                  {visible.length} {visible.length === 1 ? "item" : "items"} total
-                </span>
-              </>
-            ) : (
-              `${visible.length} ${visible.length === 1 ? "item" : "items"}`
-            )}
-          </span>
-          <span>{formatSize(totalSize(visible))}</span>
+        <div className="flex h-[28px] shrink-0 items-center gap-3 border-t border-[var(--finder-hairline)] bg-[var(--finder-toolbar)] px-3 text-[11.5px]">
+          <Breadcrumbs path={path} rootLabel={serverName} onNavigate={goTo} />
+          <span className="sui-finder-muted shrink-0">{statusText}</span>
         </div>
       </div>
       {menu ? (
@@ -839,20 +1248,238 @@ export function FilesApp({ payload }: { payload?: WindowPayload }) {
               setPendingDelete([menu.entry]);
             }
           }}
-          onCopyPath={() => {
-            if (selectedEntries.length > 1) {
-              copyPath(selectedEntries.map((e) => e.path).join("\n"));
-            } else {
-              copyPath(menu.entry?.path || path);
-            }
-          }}
+          onCopyPath={() => copySelectionPaths(menu.entry?.path || path)}
           onInfo={() => openInfo(menu.entry)}
           onTerminalHere={() => openTerminalHere(menu.entry)}
+          onRename={() =>
+            menu.entry &&
+            setDialog({ type: "rename", value: menu.entry.name, from: menu.entry.path })
+          }
+          onCopy={() => copyToClipboard("copy", menuTargets(menu.entry))}
+          onCut={() => copyToClipboard("cut", menuTargets(menu.entry))}
+          onPaste={paste}
+          onNewFolder={newFolder}
+          onNewFile={newFile}
+          onUpload={pickUpload}
+          canPaste={Boolean(clipboard)}
           onAddToDesktop={() => addDesktopShortcut(serverId, menu.entry?.path || path)}
-          onClearSelection={clearSelection}
+          onCompress={() => openCompress(menuTargets(menu.entry))}
+          onExtractHere={() => menu.entry && void onExtract(menu.entry, "here")}
+          onExtractTo={() =>
+            menu.entry &&
+            setDialog({
+              type: "extract",
+              value: joinPath(path, archiveStem(menu.entry.name)),
+              archive: menu.entry,
+            })
+          }
+          extracting={extractBusy}
           onClose={() => setMenu(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Live extraction banner: polls its job and owns the conflict / cancel actions. */
+function ExtractStatus({
+  serverId,
+  initial,
+  onFinished,
+  onError,
+  onDismiss,
+}: {
+  serverId: string;
+  initial: ExtractJob;
+  onFinished: (job: ExtractJob) => void;
+  onError: (message: string) => void;
+  onDismiss: () => void;
+}) {
+  const [job, setJob] = useState(initial);
+  // A cancel finishes asynchronously, so keep polling past a pending decision.
+  const [cancelling, setCancelling] = useState(false);
+  const onFinishedRef = useRef(onFinished);
+  const name = baseName(job.archive);
+
+  useEffect(() => {
+    onFinishedRef.current = onFinished;
+  });
+
+  useEffect(() => {
+    if (isExtractFinished(job.state)) return;
+    if (job.state === "awaiting_decision" && !cancelling) return;
+    let stopped = false;
+    const timer = window.setTimeout(async () => {
+      let next: ExtractJob;
+      try {
+        next = await getExtractJob(serverId, job.id);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          if (!stopped) setJob((current) => ({ ...current })); // retry next tick
+          return;
+        }
+        next = { ...job, state: "failed", error: "extraction status is no longer available" };
+      }
+      if (stopped) return;
+      setJob(next);
+      if (isExtractFinished(next.state)) onFinishedRef.current(next);
+    }, EXTRACT_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [job, cancelling, serverId]);
+
+  async function onResolve(policy: ConflictPolicy) {
+    try {
+      setJob(await resolveExtract(serverId, job.id, policy));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "unable to continue extraction");
+    }
+  }
+
+  async function onCancel() {
+    setCancelling(true);
+    try {
+      setJob(await cancelExtract(serverId, job.id));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "unable to cancel extraction");
+    }
+  }
+
+  if (job.state === "awaiting_decision" && !cancelling) {
+    const shown = job.conflicts.slice(0, 3).map((item) => `“${item}”`);
+    const more = job.conflicts.length - shown.length;
+    return (
+      <div
+        className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-[12px] ${BANNER_TONES.warning}`}
+        role="alertdialog"
+        aria-labelledby="extract-conflict-title"
+      >
+        <p id="extract-conflict-title" className="min-w-0 flex-1">
+          {job.conflicts.length === 1 ? (
+            <>
+              <span className="font-medium">{shown[0]}</span> already exists in {job.destination}.
+            </>
+          ) : (
+            <>
+              <span className="font-medium">{job.conflicts.length} items</span> already exist in{" "}
+              {job.destination}: {shown.join(", ")}
+              {more > 0 ? ` and ${more} more` : ""}.
+            </>
+          )}
+        </p>
+        <button type="button" className={toolbarClass} onClick={() => void onCancel()}>
+          Cancel
+        </button>
+        <button type="button" className={toolbarClass} onClick={() => void onResolve("keep-both")}>
+          Keep both
+        </button>
+        <button
+          type="button"
+          className="rounded-md bg-red-600 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-red-700"
+          onClick={() => void onResolve("replace")}
+        >
+          Replace
+        </button>
+      </div>
+    );
+  }
+
+  if (!isExtractFinished(job.state)) {
+    const percent = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0;
+    return (
+      <div
+        className={`flex items-center gap-3 border-b px-4 py-2 text-[12px] ${BANNER_TONES.info}`}
+        role="status"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate">
+            {cancelling
+              ? `Cancelling “${name}”…`
+              : job.state === "scanning"
+                ? `Checking “${name}”…`
+                : `Extracting “${name}”… ${job.done} of ${job.total} (${percent}%)`}
+          </p>
+          {job.state === "extracting" ? (
+            <div
+              className="mt-1 h-1 overflow-hidden rounded-full bg-sky-200 dark:bg-sky-900"
+              role="progressbar"
+              aria-label="Extraction progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <div
+                className="h-full bg-sky-500 transition-[width]"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className={toolbarClass}
+          disabled={cancelling}
+          onClick={() => void onCancel()}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  const message =
+    job.state === "done"
+      ? job.extracted.length === 1
+        ? `Extracted “${name}” to ${job.extracted[0]}.`
+        : `Extracted “${name}” into ${job.destination}.`
+      : job.state === "failed"
+        ? `Couldn’t extract “${name}”: ${job.error || "extraction failed"}.`
+        : `Extraction of “${name}” was cancelled. Nothing was changed.`;
+  return (
+    <StatusBanner
+      tone={job.state === "done" ? "success" : job.state === "failed" ? "error" : "neutral"}
+      message={message}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+const BANNER_TONES = {
+  info: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-300",
+  success:
+    "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300",
+  error:
+    "border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-300",
+  neutral:
+    "border-neutral-200 bg-neutral-50 text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-300",
+  warning:
+    "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200",
+};
+
+function StatusBanner({
+  tone,
+  message,
+  onDismiss,
+}: {
+  tone: Exclude<keyof typeof BANNER_TONES, "warning">;
+  message: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between border-b px-4 py-2 text-[12px] ${BANNER_TONES[tone]}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      <span className="min-w-0 flex-1">{message}</span>
+      <button
+        type="button"
+        className="ml-2 text-xs font-semibold opacity-70 hover:opacity-100"
+        onClick={onDismiss}
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

@@ -137,93 +137,134 @@ export function DashboardMacIcon({ className }: MacIconProps) {
   );
 }
 
-/** Files: cyan tile + off-white folder that opens a page on hover. */
+/**
+ * Files: Finder-style two-tone blue tile (an original design, not Apple's
+ * Finder face) with a white folder whose pages lift on hover. The two lights
+ * on the folder hint at a server drive.
+ */
 export function FilesMacIcon({ className }: MacIconProps) {
+  const raw = useId();
+  const right = uid("files-right", raw);
+  const gloss = uid("files-gloss", raw);
+
   return (
-    <MacIconPlate className={className} fill="#2486C4">
-      <path
-        className="sui-folder-tab"
-        fill="#B8BCC4"
-        d="M30 48V40c0-3.6 2.9-6.5 6.5-6.5h16.2c2.1 0 4.1 1 5.4 2.7L62 42h32.5c3.6 0 6.5 2.9 6.5 6.5V52H30z"
-      />
-      <rect
-        className="sui-folder-paper sui-folder-paper-b"
-        x="42"
-        y="38"
-        width="48"
-        height="42"
-        rx="3.5"
-        fill="#7EC8F5"
-      />
-      <rect
-        className="sui-folder-paper sui-folder-paper-a"
-        x="36"
-        y="42"
-        width="52"
-        height="44"
-        rx="3.5"
-        fill="#F0C14A"
-      />
-      <path
-        className="sui-folder-front"
-        fill="#F4F1EA"
-        d="M28 52h72c4.4 0 8 3.6 8 8v30c0 5.5-4.5 10-10 10H38c-5.5 0-10-4.5-10-10V56c0-2.2 1.8-4 4-4z"
-      />
+    <MacIconPlate className={className} from="#86d8ff" to="#2a9cf3">
+      <defs>
+        <linearGradient id={right} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3d8ff2" />
+          <stop offset="100%" stopColor="#1559d4" />
+        </linearGradient>
+        <linearGradient id={gloss} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.28" />
+          <stop offset="45%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect x="64" width="64" height="128" fill={`url(#${right})`} />
+      <rect width="128" height="128" fill={`url(#${gloss})`} pointerEvents="none" />
+      <g transform="translate(-4 -4)">
+        <path
+          className="sui-folder-tab"
+          fill="#d9edff"
+          d="M30 48V40c0-3.6 2.9-6.5 6.5-6.5h16.2c2.1 0 4.1 1 5.4 2.7L62 42h32.5c3.6 0 6.5 2.9 6.5 6.5V52H30z"
+        />
+        <rect
+          className="sui-folder-paper sui-folder-paper-b"
+          x="42"
+          y="38"
+          width="48"
+          height="42"
+          rx="3.5"
+          fill="#9be7c4"
+        />
+        <rect
+          className="sui-folder-paper sui-folder-paper-a"
+          x="36"
+          y="42"
+          width="52"
+          height="44"
+          rx="3.5"
+          fill="#ffd45c"
+        />
+        <path
+          className="sui-folder-front"
+          fill="#ffffff"
+          fillOpacity="0.96"
+          d="M28 52h72c4.4 0 8 3.6 8 8v30c0 5.5-4.5 10-10 10H38c-5.5 0-10-4.5-10-10V56c0-2.2 1.8-4 4-4z"
+        />
+        <circle cx="86" cy="89" r="3.2" fill="#2a9cf3" />
+        <circle cx="96" cy="89" r="3.2" fill="#34c759" />
+      </g>
     </MacIconPlate>
   );
 }
 
-/** Terminal: matte black tile + green prompt that types a command on hover. */
+/** Terminal: macOS-style metal frame around a black screen; the prompt types on hover. */
 export function TerminalMacIcon({ className }: MacIconProps) {
-  const mark = "#30D158";
+  const raw = useId();
+  const screen = uid("term-screen", raw);
+  const glare = uid("term-glare", raw);
+  const mark = "#f5f5f7";
+
   return (
-    <MacIconPlate className={className} fill="#141414">
+    <MacIconPlate className={className} from="#d9d9de" to="#77777f">
+      <defs>
+        <linearGradient id={screen} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#36363a" />
+          <stop offset="100%" stopColor="#0b0b0d" />
+        </linearGradient>
+        <linearGradient id={glare} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.14" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="120" height="120" rx="25" fill={`url(#${screen})`} />
+      <rect x="4" y="4" width="120" height="42" rx="25" fill={`url(#${glare})`} />
       <path
         className="sui-term-prompt"
-        d="M38 42l28 22-28 22"
+        d="M27 33l15 12-15 12"
         fill="none"
         stroke={mark}
-        strokeWidth="9"
+        strokeWidth="6.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <rect
         className="sui-term-underscore"
-        x="72"
-        y="78"
-        width="24"
-        height="9"
-        rx="2.5"
+        x="48"
+        y="53"
+        width="16"
+        height="5.5"
+        rx="1.5"
         fill={mark}
       />
       <rect
         className="sui-term-ch sui-term-ch-1"
-        x="70"
-        y="78"
-        width="8"
-        height="9"
-        rx="2"
+        x="48"
+        y="53"
+        width="5"
+        height="5.5"
+        rx="1.2"
         fill={mark}
       />
       <rect
         className="sui-term-ch sui-term-ch-2"
-        x="82"
-        y="78"
-        width="6"
-        height="9"
-        rx="2"
+        x="56"
+        y="53"
+        width="4"
+        height="5.5"
+        rx="1.2"
         fill={mark}
       />
       <rect
         className="sui-term-ch sui-term-ch-3"
-        x="92"
-        y="78"
-        width="10"
-        height="9"
-        rx="2"
+        x="63"
+        y="53"
+        width="7"
+        height="5.5"
+        rx="1.2"
         fill={mark}
       />
-      <rect className="sui-term-cursor" x="106" y="72" width="6" height="16" rx="1.5" fill={mark} />
+      <rect className="sui-term-cursor" x="74" y="44" width="4" height="14" rx="1" fill={mark} />
     </MacIconPlate>
   );
 }

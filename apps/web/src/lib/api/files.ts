@@ -82,6 +82,135 @@ export async function uploadFile(serverId: string, directory: string, file: File
   });
 }
 
+// Copy, move, compress and extract run as shell commands on the server and can take minutes.
+const LONG_OPERATION_MS = 30 * 60 * 1000;
+
+export function copyItem(serverId: string, from: string, to: string, overwrite = false) {
+  return apiRequest<{ status: string }>("/api/files/copy", {
+    method: "POST",
+    body: JSON.stringify({ serverId, from, to, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+export function moveItem(serverId: string, from: string, to: string, overwrite = false) {
+  return apiRequest<{ status: string }>("/api/files/move", {
+    method: "POST",
+    body: JSON.stringify({ serverId, from, to, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+export const ARCHIVE_FORMATS = [
+  { id: "zip", label: "ZIP", ext: ".zip" },
+  { id: "tar.gz", label: "TAR.GZ", ext: ".tar.gz" },
+  { id: "tgz", label: "TGZ", ext: ".tgz" },
+  { id: "tar.bz2", label: "TAR.BZ2", ext: ".tar.bz2" },
+  { id: "tar.xz", label: "TAR.XZ", ext: ".tar.xz" },
+  { id: "tar", label: "TAR", ext: ".tar" },
+  { id: "7z", label: "7Z", ext: ".7z" },
+] as const;
+
+export type ArchiveFormat = (typeof ARCHIVE_FORMATS)[number]["id"];
+
+export function compressItems(
+  serverId: string,
+  dir: string,
+  names: string[],
+  archive: string,
+  format: ArchiveFormat,
+  overwrite = false,
+) {
+  return apiRequest<{ status: string; path: string }>("/api/files/compress", {
+    method: "POST",
+    body: JSON.stringify({ serverId, dir, names, archive, format, overwrite }),
+    timeoutMs: LONG_OPERATION_MS,
+  });
+}
+
+// Mirrors the server's filesystem.ArchiveSuffix (longest first so ".tar.gz" wins over ".tar").
+const ARCHIVE_SUFFIXES = [
+  ".tar.gz",
+  ".tar.bz2",
+  ".tar.xz",
+  ".tgz",
+  ".tbz2",
+  ".txz",
+  ".tar",
+  ".zip",
+  ".7z",
+];
+
+export function archiveSuffix(name: string) {
+  const lower = name.toLowerCase();
+  return (
+    ARCHIVE_SUFFIXES.find((suffix) => lower.endsWith(suffix) && name.length > suffix.length) ?? ""
+  );
+}
+
+export function isArchive(entry: Pick<FileEntry, "name" | "type">) {
+  return entry.type === "file" && archiveSuffix(entry.name) !== "";
+}
+
+/** "backup.tar.gz" → "backup" */
+export function archiveStem(name: string) {
+  return name.slice(0, name.length - archiveSuffix(name).length);
+}
+
+export type ExtractState =
+  "scanning" | "awaiting_decision" | "extracting" | "done" | "failed" | "cancelled";
+
+export type ExtractJob = {
+  id: string;
+  state: ExtractState;
+  archive: string;
+  destination: string;
+  done: number;
+  total: number;
+  conflicts: string[];
+  extracted: string[];
+  error?: string;
+};
+
+export type ConflictPolicy = "replace" | "keep-both";
+
+export function isExtractFinished(state: ExtractState) {
+  return state === "done" || state === "failed" || state === "cancelled";
+}
+
+/** Starts a server-side extraction job; progress comes from getExtractJob. */
+export function startExtract(
+  serverId: string,
+  path: string,
+  mode: "here" | "to",
+  destination?: string,
+) {
+  return apiRequest<ExtractJob>("/api/files/extract", {
+    method: "POST",
+    body: JSON.stringify({ serverId, path, mode, destination }),
+  });
+}
+
+export function getExtractJob(serverId: string, jobId: string) {
+  return apiRequest<ExtractJob>(
+    `/api/files/extract/${encodeURIComponent(jobId)}?${fileQuery(serverId, {})}`,
+  );
+}
+
+export function resolveExtract(serverId: string, jobId: string, policy: ConflictPolicy) {
+  return apiRequest<ExtractJob>(`/api/files/extract/${encodeURIComponent(jobId)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ serverId, policy }),
+  });
+}
+
+export function cancelExtract(serverId: string, jobId: string) {
+  return apiRequest<ExtractJob>(
+    `/api/files/extract/${encodeURIComponent(jobId)}?${fileQuery(serverId, {})}`,
+    { method: "DELETE" },
+  );
+}
+
 export function downloadUrl(serverId: string, path: string) {
   return authenticatedApiUrl(`/api/files/download?${fileQuery(serverId, { path, download: "1" })}`);
 }

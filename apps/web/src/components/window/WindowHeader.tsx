@@ -36,41 +36,13 @@ export function WindowHeader({
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     >
-      <div className="group/traffic z-10 flex items-center gap-[7px]">
-        <TrafficLight
-          label="Close"
-          className={
-            focused
-              ? "bg-[#ff5f57] text-[#4d0000]"
-              : "bg-[#8e8e93] text-[#4d0000] group-hover/traffic:bg-[#ff5f57]"
-          }
-          onClick={onClose}
-        >
-          <CloseGlyph />
-        </TrafficLight>
-        <TrafficLight
-          label="Minimize"
-          className={
-            focused
-              ? "bg-[#febc2e] text-[#9a5f00]"
-              : "bg-[#8e8e93] text-[#9a5f00] group-hover/traffic:bg-[#febc2e]"
-          }
-          onClick={onMinimize}
-        >
-          <MinimizeGlyph />
-        </TrafficLight>
-        <TrafficLight
-          label={maximized ? "Restore" : "Maximize"}
-          className={
-            focused
-              ? "bg-[#28c840] text-[#0b5a12]"
-              : "bg-[#8e8e93] text-[#0b5a12] group-hover/traffic:bg-[#28c840]"
-          }
-          onClick={onMaximize}
-        >
-          <ZoomGlyph restore={maximized} />
-        </TrafficLight>
-      </div>
+      <WindowTrafficLights
+        focused={focused}
+        maximized={maximized}
+        onMinimize={onMinimize}
+        onMaximize={onMaximize}
+        onClose={onClose}
+      />
       <h2
         className={`pointer-events-none absolute inset-x-16 truncate text-center text-[13px] font-medium ${
           light ? "text-[var(--window-title)]" : "text-white/80"
@@ -79,6 +51,59 @@ export function WindowHeader({
         {title}
       </h2>
     </header>
+  );
+}
+
+/** Close / minimize / zoom buttons, shared by the standard header and app-drawn title bars. */
+export function WindowTrafficLights({
+  focused,
+  maximized,
+  onMinimize,
+  onMaximize,
+  onClose,
+}: {
+  focused: boolean;
+  maximized: boolean;
+  onMinimize: () => void;
+  onMaximize: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="group/traffic z-10 flex items-center gap-2">
+      <TrafficLight
+        label="Close"
+        className={
+          focused
+            ? "bg-[#ff5f57] text-[#5c0a04]"
+            : "bg-[var(--traffic-idle)] text-[#5c0a04] group-hover/traffic:bg-[#ff5f57]"
+        }
+        onClick={onClose}
+      >
+        <CloseGlyph />
+      </TrafficLight>
+      <TrafficLight
+        label="Minimize"
+        className={
+          focused
+            ? "bg-[#febc2e] text-[#7a4600]"
+            : "bg-[var(--traffic-idle)] text-[#7a4600] group-hover/traffic:bg-[#febc2e]"
+        }
+        onClick={onMinimize}
+      >
+        <MinimizeGlyph />
+      </TrafficLight>
+      <TrafficLight
+        label={maximized ? "Restore" : "Maximize"}
+        className={
+          focused
+            ? "bg-[#28c840] text-[#07500f]"
+            : "bg-[var(--traffic-idle)] text-[#07500f] group-hover/traffic:bg-[#28c840]"
+        }
+        onClick={onMaximize}
+      >
+        <ZoomGlyph restore={maximized} />
+      </TrafficLight>
+    </div>
   );
 }
 
@@ -98,7 +123,7 @@ function TrafficLight({
       type="button"
       aria-label={label}
       title={label}
-      className={`flex size-3 items-center justify-center rounded-full outline-none ${className}`}
+      className={`sui-traffic-light flex size-[14px] items-center justify-center rounded-full outline-none ${className}`}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
@@ -112,14 +137,16 @@ function TrafficLight({
   );
 }
 
+// Glyphs are sized like macOS: roughly half the 14px light, drawn in a dark
+// tint of the light's own colour (set via text-* on the button).
 function CloseGlyph() {
   return (
-    <svg viewBox="0 0 12 12" aria-hidden className="size-[7px]">
+    <svg viewBox="0 0 12 12" aria-hidden className="size-[8px]">
       <path
-        d="M3 3l6 6M9 3l-6 6"
+        d="M2.2 2.2l7.6 7.6M9.8 2.2l-7.6 7.6"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.4"
+        strokeWidth="1.5"
         strokeLinecap="round"
       />
     </svg>
@@ -128,32 +155,33 @@ function CloseGlyph() {
 
 function MinimizeGlyph() {
   return (
-    <svg viewBox="0 0 12 12" aria-hidden className="size-[7px]">
+    <svg viewBox="0 0 12 12" aria-hidden className="size-[9px]">
       <path
-        d="M2.5 6.1h7"
+        d="M1.5 6h9"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.4"
+        strokeWidth="1.5"
         strokeLinecap="round"
       />
     </svg>
   );
 }
 
+/** macOS zoom glyph: two triangles at top-left and bottom-right (inward when restoring). */
 function ZoomGlyph({ restore }: { restore: boolean }) {
   if (restore) {
     return (
       <svg viewBox="0 0 12 12" aria-hidden className="size-[8px]">
-        <path fill="currentColor" d="M1.6 6.6h3.8V2.8L1.6 6.6Z" />
-        <path fill="currentColor" d="M10.4 5.4H6.6v3.8l3.8-3.8Z" />
+        <path fill="currentColor" d="M5.6 5.6H1.2l4.4-4.4Z" />
+        <path fill="currentColor" d="M6.4 6.4h4.4l-4.4 4.4Z" />
       </svg>
     );
   }
 
   return (
     <svg viewBox="0 0 12 12" aria-hidden className="size-[8px]">
-      <path fill="currentColor" d="M6.4 1.4h4.2v4.2L6.4 1.4Z" />
-      <path fill="currentColor" d="M5.6 10.6H1.4V6.4l4.2 4.2Z" />
+      <path fill="currentColor" d="M1.4 1.4h4.8L1.4 6.2Z" />
+      <path fill="currentColor" d="M10.6 10.6H5.8l4.8-4.8Z" />
     </svg>
   );
 }
