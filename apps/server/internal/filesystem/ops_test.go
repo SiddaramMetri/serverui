@@ -6,12 +6,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 // run executes a generated command with the local sh, the same way the SSH session runs it remotely.
 func run(t *testing.T, command string) int {
 	t.Helper()
+	// These fixtures exercise Unix remote scripts against real sh/tar/zip.
+	// On Windows, Git/MSYS sh may be on PATH but mangles drive paths (e.g. /C:\...),
+	// so skip rather than produce false failures under make/pre-commit.
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell fixtures require a non-Windows host")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
 	err := exec.Command("sh", "-c", command).Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

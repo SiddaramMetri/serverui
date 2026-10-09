@@ -66,6 +66,14 @@ secrets.json
 **/serverui-updater.key.pub
 AppleWWDRCAG3.cer
 *.cer
+# Microsoft Store / MSIX local identity + pack staging (never commit secrets)
+apps/desktop/msix/store-identity.env
+apps/desktop/msix/staging/
+apps/desktop/msix/devcert.pfx
+apps/desktop/msix/devcert.cer
+*.msix
+*.msixbundle
+*.msixupload
 dist/desktop/
 dist/release/
 dist/publish/

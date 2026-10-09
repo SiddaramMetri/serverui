@@ -8,6 +8,9 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "build:unsigned": "tauri build --config src-tauri/tauri.unsigned.conf.json",
+    "build:msix": "bash ./scripts/build-msix-release.sh",
+    "build:msix:local": "bash ./scripts/build-msix-release.sh local",
+    "build:msix:store": "bash ./scripts/build-msix-release.sh store",
     "sync-version": "node ./scripts/sync-version.mjs"
   },
   "devDependencies": {

@@ -20,9 +20,17 @@ pub fn run() {
     let manager_for_setup = Arc::clone(&manager);
     let manager_for_exit = Arc::clone(&manager);
 
-    tauri::Builder::default()
+    #[cfg(feature = "msix-store")]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
+
+    // GitHub Releases updater is for sideload / NSIS / MSI channels only.
+    // Microsoft Store submissions must not ship an external updater.
+    #[cfg(not(feature = "msix-store"))]
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .manage(manager)
         .invoke_handler(tauri::generate_handler![get_runtime_config])
         .setup(move |app| {

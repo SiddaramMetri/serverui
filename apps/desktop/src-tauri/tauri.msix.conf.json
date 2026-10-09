@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    }
+  },
+  "app": {
+    "security": {
+      "capabilities": ["msix-default"]
+    }
+  }
+}

@@ -3,6 +3,7 @@ package archive
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -48,6 +49,9 @@ func TestStem(t *testing.T) {
 }
 
 func TestShellQuoteRoundTrips(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell quote round-trip requires a non-Windows host")
+	}
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
 	}

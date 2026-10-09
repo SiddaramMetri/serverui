@@ -48,10 +48,14 @@ make desktop-build                 # host-arch local bundle
 make desktop-build-macos-arm64     # Apple Silicon → dist/macos/
 make desktop-build-macos-x64       # Intel → dist/macos/
 make desktop-build-macos           # arm64 + x64 → dist/macos/
-make desktop-build-windows-x64     # Windows host → dist/windows/
+make desktop-build-windows-x64     # Windows host → dist/windows/ (NSIS + MSI)
+make desktop-build-msix            # Windows host → dist/msix/ (Microsoft Store MSIX)
 make desktop-build-linux-x64       # Linux host → dist/linux/
 make desktop-build-all            # prints CI release instructions (no cross-build)
 ```
+
+Microsoft Store MSIX packaging (WinApp CLI), Partner Center identity, and signing:
+[docs/microsoft-store-msix.md](../../docs/microsoft-store-msix.md).
 
 `make desktop-build` produces a Tauri bundle for the current machine. Platform
 targets collect versioned installers and `SHA256SUMS` under `dist/macos/`,

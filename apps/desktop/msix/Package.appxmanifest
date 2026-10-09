@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Microsoft Store / MSIX package identity for ServerUI.
+
+  Identity.Name and Identity.Publisher MUST match Partner Center
+  Product management / App identity. Do not invent these values.
+
+  Placeholders below are replaced at pack time from
+  apps/desktop/msix/store-identity.env (see store-identity.example.env).
+
+  Version is overwritten from apps/desktop/src-tauri/tauri.conf.json
+  (SemVer X.Y.Z becomes X.Y.Z.0; the fourth digit must remain 0 for Store).
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 rescap">
+
+  <Identity
+    Name="__STORE_PACKAGE_IDENTITY_NAME__"
+    Publisher="__STORE_PUBLISHER__"
+    Version="0.2.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>ServerUI</DisplayName>
+    <PublisherDisplayName>__STORE_PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Desktop control panel for Linux servers</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application
+      Id="ServerUI"
+      Executable="ServerUI.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ServerUI"
+        Description="Desktop control panel for Linux servers"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\MedTile.png"
+        Square44x44Logo="Assets\AppList.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\WideTile.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Win32 / Tauri full-trust desktop app (required for packaged exe + Go sidecar). -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Outbound SSH / HTTPS to managed servers and update metadata (GitHub releases outside Store). -->
+    <Capability Name="internetClient" />
+  </Capabilities>
+</Package>

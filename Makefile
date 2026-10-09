@@ -1,5 +1,20 @@
 .DEFAULT_GOAL := help
 
+# GnuWin32 make (common on Windows) defaults to cmd.exe, which cannot run POSIX
+# recipes such as `if [ ! -f ... ]` ("! was unexpected at this time"). Use Git
+# Bash as SHELL only; do not put its usr/bin on PATH, or go test will find MSYS
+# sh/tar/unzip and run Unix-only archive fixtures against Windows paths.
+ifeq ($(OS),Windows_NT)
+_WIN_GIT_BASH := $(firstword $(wildcard \
+	C:/Progra~1/Git/bin/bash.exe \
+	C:/Progra~2/Git/bin/bash.exe \
+	$(subst \,/,$(LOCALAPPDATA))/Programs/Git/bin/bash.exe))
+ifeq ($(_WIN_GIT_BASH),)
+$(error Git Bash not found. Install Git for Windows from https://git-scm.com, then re-run make.)
+endif
+SHELL := $(_WIN_GIT_BASH)
+endif
+
 WEB_DIR := apps/web
 SERVER_DIR := apps/server
 DESKTOP_DIR := apps/desktop
@@ -18,14 +33,14 @@ COMPOSE_DESKTOP_DB := docker compose -f $(DOCKER_DIR)/docker-compose.yml -f $(DO
 .PHONY: help setup-env hooks start dev test lint format format-check build \
 	build-server desktop-db desktop-dev desktop-build desktop-build-all \
 	desktop-build-macos desktop-build-macos-arm64 desktop-build-macos-x64 \
-	desktop-build-windows-x64 desktop-build-linux-x64 \
+	desktop-build-windows-x64 desktop-build-linux-x64 desktop-build-msix \
 	desktop-e2e desktop-version desktop-release-helpers-test \
 	docker-up docker-down docker-build docker-logs docker-ps docker-tui \
 	ensure-docker ensure-env ensure-web-deps ensure-desktop-deps ensure-lazydocker ensure-rust
 
 help:
 	@echo "ServerUI Development Commands"
-	@echo
+	@echo ""
 	@echo "  make dev             Start temporary development environment + LazyDocker"
 	@echo "  make start           Build and start production environment in background"
 	@echo "  make desktop-dev     Start Tauri desktop + Next.js + local Go backend"
@@ -36,6 +51,7 @@ help:
 	@echo "  make desktop-build-macos        macOS arm64 + x64 → dist/macos/"
 	@echo "  make desktop-build-windows-x64  Windows x64 (native Windows host) → dist/windows/"
 	@echo "  make desktop-build-linux-x64    Linux x64 (native Linux host) → dist/linux/"
+	@echo "  make desktop-build-msix         Windows x64 MSIX (Store/local) → dist/msix/"
 	@echo "  make desktop-build-all          Explain full matrix (CI); does not cross-build"
 	@echo "  make desktop-e2e     Run desktop local-auth / lifecycle integration checks"
 	@echo "  make desktop-version Sync/bump desktop SemVer (VERSION=x.y.z optional)"
@@ -47,16 +63,16 @@ help:
 	@echo "  make build-server    Build Go server binary only"
 	@echo "  make setup-env       Create .env and generate an encryption key if needed"
 	@echo "  make hooks           Configure local Git hooks (core.hooksPath=.githooks)"
-	@echo
+	@echo ""
 	@echo "Docker Commands"
-	@echo
+	@echo ""
 	@echo "  make docker-up       Start Docker services in background"
 	@echo "  make docker-down     Stop and remove Docker services"
 	@echo "  make docker-build    Rebuild Docker images"
 	@echo "  make docker-logs     Show Docker service logs"
 	@echo "  make docker-ps       Show running Docker services"
 	@echo "  make docker-tui      Open LazyDocker"
-	@echo
+	@echo ""
 	@echo "  make help            Show this help message"
 
 ensure-docker:
@@ -119,17 +135,17 @@ start: ensure-docker setup-env ensure-env
 	@echo "Building ServerUI..."
 	$(COMPOSE_PROD) up -d --build --remove-orphans
 	@echo "Starting services..."
-	@echo
+	@echo ""
 	@echo "ServerUI is running."
-	@echo
+	@echo ""
 	@echo "  Web:    http://localhost:$${WEB_PORT:-3000}"
 	@echo "  API:    http://localhost:$${HTTP_PORT:-8080}"
-	@echo
+	@echo ""
 	@echo "Docker services are running in the background."
 
 dev: ensure-docker setup-env ensure-env ensure-lazydocker
 	@echo "Starting ServerUI development environment..."
-	@echo
+	@echo ""
 	@echo "Starting Docker services..."
 	@trap 'echo; echo "Stopping development environment..."; $(COMPOSE_DEV) down; echo "Development containers removed. Database volume preserved."' EXIT INT TERM HUP; \
 	$(COMPOSE_DEV) up -d --build --remove-orphans; \
@@ -154,9 +170,13 @@ ensure-desktop-deps:
 test: ensure-web-deps
 	cd $(WEB_DIR) && npm test
 	go -C $(SERVER_DIR) test ./...
-	@$(MAKE) desktop-release-helpers-test
+	# Inline helpers (do not recurse via $$(MAKE)): GnuWin32 lives under
+	# "Program Files (x86)", and bash -c treats the unquoted (x86) as syntax.
+	@chmod +x scripts/test-desktop-release-helpers.sh scripts/collect-desktop-artifacts.sh && :
+	./scripts/test-desktop-release-helpers.sh
 	@if command -v cargo >/dev/null 2>&1; then \
-		$(MAKE) build-server; \
+		mkdir -p $(BIN_DIR); \
+		go -C $(SERVER_DIR) build -o $(CURDIR)/$(BIN_DIR)/serverui-server ./cmd/server; \
 		chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh; \
 		$(DESKTOP_DIR)/scripts/prepare-sidecar.sh; \
 		cargo test --manifest-path $(DESKTOP_DIR)/src-tauri/Cargo.toml; \
@@ -196,16 +216,16 @@ desktop-db: ensure-docker setup-env ensure-env
 	@echo "Postgres is available at 127.0.0.1:$${POSTGRES_PUBLISH_PORT:-5432}"
 
 desktop-dev: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust build-server
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh && :
 	@$(DESKTOP_DIR)/scripts/prepare-sidecar.sh
 	@echo "Starting ServerUI desktop development..."
-	@echo
+	@echo ""
 	@echo "  UI:      http://localhost:$${WEB_PORT:-3000} (Next.js, loaded by Tauri)"
 	@echo "  Backend: started by Tauri on 127.0.0.1:<dynamic-port> (SQLite in app data)"
-	@echo
+	@echo ""
 	@echo "Packaged/default desktop uses local SQLite (no PostgreSQL required)."
 	@echo "Optional Postgres testing: SERVERUI_STORAGE=postgres make desktop-db && make desktop-dev"
-	@echo
+	@echo ""
 	@trap 'echo; echo "Stopping Next.js..."; kill $$NEXT_PID 2>/dev/null || true' EXIT INT TERM HUP; \
 	(cd $(WEB_DIR) && npm run dev -- --port $${WEB_PORT:-3000}) & NEXT_PID=$$!; \
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
@@ -222,7 +242,7 @@ desktop-version: ensure-desktop-deps
 	fi
 
 desktop-build: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust build-server
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh && :
 	$(DESKTOP_DIR)/scripts/prepare-sidecar.sh
 	@node $(DESKTOP_DIR)/scripts/sync-version.mjs
 	@if [ -n "$$TAURI_SIGNING_PRIVATE_KEY" ]; then \
@@ -234,49 +254,58 @@ desktop-build: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-r
 	fi
 
 desktop-build-macos-arm64: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh && :
 	$(DESKTOP_DIR)/scripts/build-macos-release.sh arm64
 
 desktop-build-macos-x64: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh && :
 	$(DESKTOP_DIR)/scripts/build-macos-release.sh x64
 
 desktop-build-macos: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-macos-release.sh && :
 	$(DESKTOP_DIR)/scripts/build-macos-release.sh all
 
 desktop-build-windows-x64: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-native-release.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-native-release.sh && :
 	$(DESKTOP_DIR)/scripts/build-native-release.sh windows-x64
 
 desktop-build-linux-x64: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
-	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-native-release.sh
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-native-release.sh && :
 	$(DESKTOP_DIR)/scripts/build-native-release.sh linux-x64
+
+# MSIX for Microsoft Store / sideload. MODE=store|local (default: store if
+# apps/desktop/msix/store-identity.env exists, otherwise local).
+desktop-build-msix: setup-env ensure-env ensure-web-deps ensure-desktop-deps ensure-rust
+	@chmod +x $(DESKTOP_DIR)/scripts/prepare-sidecar.sh $(DESKTOP_DIR)/scripts/build-msix-release.sh && :
+	@"$(SHELL)" "$(CURDIR)/$(DESKTOP_DIR)/scripts/build-msix-release.sh" $(MODE)
 
 desktop-build-all:
 	@echo "ServerUI desktop production matrix is built on native GitHub-hosted runners."
-	@echo
+	@echo ""
 	@echo "  Local (this machine, current OS/arch only):"
 	@echo "    make desktop-build"
 	@echo "    make desktop-build-macos-arm64   # macOS host"
 	@echo "    make desktop-build-macos-x64     # macOS host (cross compile OK)"
 	@echo "    make desktop-build-windows-x64   # Windows host only"
 	@echo "    make desktop-build-linux-x64     # Linux host only"
-	@echo
+	@echo "    make desktop-build-msix          # Windows host → dist/msix/ (Store/local)"
+	@echo "    make desktop-build-msix MODE=local"
+	@echo "    make desktop-build-msix MODE=store   # needs msix/store-identity.env"
+	@echo ""
 	@echo "  Full release (macOS arm64+x64, Windows x64, Linux x64):"
 	@echo "    1. node apps/desktop/scripts/sync-version.mjs X.Y.Z && commit"
 	@echo "    2. git tag vX.Y.Z && git push origin vX.Y.Z"
 	@echo "    3. GitHub Actions: Desktop Release (.github/workflows/desktop-release.yml)"
-	@echo
+	@echo ""
 	@echo "This target does not attempt fragile local cross-builds for Windows/Linux."
-	@echo "See docs/releases.md."
+	@echo "See docs/releases.md and docs/microsoft-store-msix.md."
 
 desktop-e2e: setup-env ensure-env build-server
-	@chmod +x scripts/desktop-e2e.sh
+	@chmod +x scripts/desktop-e2e.sh && :
 	./scripts/desktop-e2e.sh
 
 desktop-release-helpers-test:
-	@chmod +x scripts/test-desktop-release-helpers.sh scripts/collect-desktop-artifacts.sh
+	@chmod +x scripts/test-desktop-release-helpers.sh scripts/collect-desktop-artifacts.sh && :
 	./scripts/test-desktop-release-helpers.sh
 
 docker-up: ensure-docker ensure-env

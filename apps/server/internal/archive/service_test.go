@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,11 @@ func localNames(_ string, dir string) ([]filesystem.Entry, error) {
 
 func requireTools(t *testing.T, tools ...string) {
 	t.Helper()
+	// Integration tests drive generated Unix shell scripts via local sh/tar/unzip.
+	// Git for Windows often exposes MSYS tools that break on Windows temp paths.
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell archive fixtures require a non-Windows host")
+	}
 	for _, tool := range append([]string{"sh", "mktemp", "df"}, tools...) {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("%s not available", tool)

@@ -74,7 +74,8 @@ for cmd in go rustc cargo rustup node npm; do
 done
 
 node "$DESKTOP_DIR/scripts/sync-version.mjs"
-VERSION="$(node -p "require('$DESKTOP_DIR/src-tauri/tauri.conf.json').version")"
+# Relative require: Windows Node cannot open Git Bash paths like /d/projects/...
+VERSION="$(cd "$DESKTOP_DIR" && node -p "require('./src-tauri/tauri.conf.json').version")"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Invalid version in tauri.conf.json: $VERSION" >&2
   exit 1
