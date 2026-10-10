@@ -5,9 +5,9 @@ import { Box, ExternalLink, Globe, Lock, Monitor, Zap, type LucideIcon } from "l
 import { BrandMark } from "@/src/components/brand/BrandMark";
 
 const SOURCE_URL = "https://github.com/rakhechashubham/serverui";
-const SITE_URL = "https://serverui.shubhamrakhecha.com";
-const SITE_LABEL = "serverui.shubhamrakhecha.com";
-const GITHUB_URL = "https://github.com/RakhechaShubham";
+const SITE_URL = "https://serverui.dev";
+const SITE_LABEL = "serverui.dev";
+const GITHUB_URL = "https://github.com/rakhechashubham";
 const X_URL = "https://x.com/RakhechaShubham";
 const LINKEDIN_URL = "https://www.linkedin.com/in/shubham-rakhecha-75a3b621a/";
 
