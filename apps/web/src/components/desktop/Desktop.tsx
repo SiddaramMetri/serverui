@@ -5,6 +5,7 @@ import { ServerProvider } from "@/src/lib/api/server-context";
 import { isDesktopRuntime } from "@/src/lib/runtime";
 import { useSession } from "@/src/lib/session";
 import { DesktopContextMenu } from "@/src/components/desktop/DesktopContextMenu";
+import { DesktopShortcuts } from "@/src/components/desktop/DesktopShortcuts";
 import { Dock } from "@/src/components/desktop/Dock";
 import { TopBar } from "@/src/components/desktop/TopBar";
 import { BrandMark } from "@/src/components/brand/BrandMark";
@@ -24,7 +25,7 @@ export function Desktop() {
 }
 
 function DesktopShell() {
-  const { logOut } = useSession();
+  const { logOut, selectedServer } = useSession();
   const { clearFocus, windows, focusedId, closeWindow, openWindow } = useWindowManager();
   const fullscreen = windows.some((item) => item.maximized && !item.minimized);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -148,6 +149,7 @@ function DesktopShell() {
         aria-label="Server desktop"
         role="application"
       >
+        <DesktopShortcuts serverId={selectedServer?.id || ""} />
         <WindowManager />
       </div>
       <Dock onComingSoon={showComingSoon} autoHideOverride={fullscreen} />

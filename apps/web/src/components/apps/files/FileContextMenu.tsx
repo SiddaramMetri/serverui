@@ -29,6 +29,7 @@ type FileContextMenuProps = FileMenuActions & {
   entry: FileEntry | null;
   selectedEntries?: FileEntry[];
   canPaste: boolean;
+  onAddToDesktop?: () => void;
   /** True while an extraction runs in this window; Extract items are disabled. */
   extracting?: boolean;
   onClose: () => void;
@@ -79,6 +80,7 @@ export function menuItems({
   return [
     { label: "Open", run: a.onOpen },
     ...(dir ? [{ label: "Open Terminal", run: a.onTerminalHere }] : []),
+    ...(dir && a.onAddToDesktop ? [{ label: "Add to Desktop", run: a.onAddToDesktop }] : []),
     { label: "Copy Path", run: a.onCopyPath },
     { label: "Details", run: a.onInfo },
     ...(dir ? [] : [{ label: "Download", run: a.onDownload }]),
